@@ -20,5 +20,6 @@ fi
 
 echo "Downloading wasmtime v${VERSION} for ${ARCH}-${OS} ($URL) to $DEST..."
 mkdir -p "$DEST"
-curl -sL "$URL" | tar xJ --strip-components=1 -C "$DEST"
+curl -L "$URL" > file.tar.xz
+cat file.tar.xz | tar xJ --strip-components=1 -C "$DEST"
 echo "Done: $DEST/lib/libwasmtime.a"
