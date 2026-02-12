@@ -5,6 +5,7 @@ homepage:     "https://github.com/LaurentMazare/ocaml-wasmtime"
 dev-repo:     "git+https://github.com/LaurentMazare/ocaml-wasmtime.git"
 maintainer:   "Laurent Mazare <lmazare@gmail.com>"
 authors:      [ "Laurent Mazare" ]
+license:      "Apache-2.0"
 
 version: "dev"
 
