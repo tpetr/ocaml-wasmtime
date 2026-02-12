@@ -40,9 +40,9 @@ let () =
     store
     ~inherit_argv:true
     ~inherit_env:true
-    ~inherit_stdin:true
-    ~inherit_stderr:true
-    ~inherit_stdout:true;
+    ~stdin:Inherit
+    ~stdout:Inherit
+    ~stderr:Inherit;
   let linker = W.Wasmtime.Linker.create engine in
   W.Wasmtime.Linker.define_wasi linker;
   W.Wasmtime.Linker.module_ linker store ~name:"foo" modl;

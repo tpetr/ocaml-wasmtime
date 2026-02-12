@@ -86,12 +86,16 @@ module Instance : sig
 end
 
 module Wasi : sig
+  type stdin = Inherit | Bytes of string | File of string
+  type stdout = Inherit | File of string
+  type stderr = Inherit
+
   val configure
     :  ?inherit_argv:bool
     -> ?inherit_env:bool
-    -> ?inherit_stdin:bool
-    -> ?inherit_stdout:bool
-    -> ?inherit_stderr:bool
+    -> ?stdin:stdin
+    -> ?stdout:stdout
+    -> ?stderr:stderr
     -> ?preopen_dirs:(string * string) list
     -> Store.t
     -> unit

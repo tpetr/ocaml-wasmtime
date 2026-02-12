@@ -380,12 +380,16 @@ module Instance = struct
 end
 
 module Wasi = struct
+  type stdin = Inherit | Bytes of string | File of string
+  type stdout = Inherit | File of string
+  type stderr = Inherit
+
   let configure
       ?(inherit_argv = false)
       ?(inherit_env = false)
-      ?(inherit_stdin = false)
-      ?(inherit_stdout = false)
-      ?(inherit_stderr = false)
+      ?stdin
+      ?stdout
+      ?stderr
       ?(preopen_dirs = [])
       (store : Store.t)
     =
@@ -393,9 +397,26 @@ module Wasi = struct
     if Ctypes.is_null config then failwith "Wasi_config.new returned null";
     if inherit_argv then W.Wasi_config.inherit_argv config;
     if inherit_env then W.Wasi_config.inherit_env config;
-    if inherit_stdin then W.Wasi_config.inherit_stdin config;
-    if inherit_stdout then W.Wasi_config.inherit_stdout config;
-    if inherit_stderr then W.Wasi_config.inherit_stderr config;
+    (match (stdin : stdin option) with
+     | Some Inherit -> W.Wasi_config.inherit_stdin config
+     | Some (Bytes bytes) ->
+       (* Allocate byte vec without GC finalizer: C takes ownership *)
+       let t = Ctypes.allocate_n W.Byte_vec.struct_ ~count:1 in
+       W.Byte_vec.new_ t (String.length bytes |> Unsigned.Size_t.of_int) bytes;
+       W.Wasi_config.set_stdin_bytes config t
+     | Some (File path) ->
+       if not (W.Wasi_config.set_stdin_file config path) then
+         failwith (Printf.sprintf "wasi_config_set_stdin_file failed: %s" path)
+     | None -> ());
+    (match (stdout : stdout option) with
+     | Some Inherit -> W.Wasi_config.inherit_stdout config
+     | Some (File path) ->
+       if not (W.Wasi_config.set_stdout_file config path) then
+         failwith (Printf.sprintf "wasi_config_set_stdout_file failed: %s" path)
+     | None -> ());
+    (match (stderr : stderr option) with
+     | Some Inherit -> W.Wasi_config.inherit_stderr config
+     | None -> ());
     List.iter
       (fun (host_path, guest_path) ->
         (* dir_perms = READ|WRITE = 3, file_perms = READ|WRITE = 3 *)

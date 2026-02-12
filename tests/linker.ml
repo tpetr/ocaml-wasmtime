@@ -70,9 +70,9 @@ let () =
     store
     ~inherit_argv:true
     ~inherit_env:true
-    ~inherit_stdin:true
-    ~inherit_stderr:true
-    ~inherit_stdout:true;
+    ~stdin:Inherit
+    ~stdout:Inherit
+    ~stderr:Inherit;
   let linker = W.Wasmtime.Linker.create engine in
   let instantiate ~wat =
     let wasm = W.Wasmtime.wat_to_wasm ~wat in
