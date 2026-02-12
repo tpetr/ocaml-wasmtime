@@ -358,6 +358,8 @@ module C (F : Cstubs.FOREIGN) = struct
       foreign "wasi_config_set_stdin_bytes" (t @-> Byte_vec.t @-> returning void)
     let set_stdout_file =
       foreign "wasi_config_set_stdout_file" (t @-> string @-> returning bool)
+    let set_stderr_file =
+      foreign "wasi_config_set_stderr_file" (t @-> string @-> returning bool)
 
     (* v41: preopen_dir now takes 5 args: config, host_path, guest_path, dir_perms, file_perms *)
     let preopen_dir =

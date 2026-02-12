@@ -88,7 +88,7 @@ end
 module Wasi : sig
   type stdin = Inherit | Bytes of string | File of string
   type stdout = Inherit | File of string
-  type stderr = Inherit
+  type stderr = Inherit | File of string
 
   val configure
     :  ?inherit_argv:bool

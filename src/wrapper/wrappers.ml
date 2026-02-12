@@ -382,7 +382,7 @@ end
 module Wasi = struct
   type stdin = Inherit | Bytes of string | File of string
   type stdout = Inherit | File of string
-  type stderr = Inherit
+  type stderr = Inherit | File of string
 
   let configure
       ?(inherit_argv = false)
@@ -416,6 +416,9 @@ module Wasi = struct
      | None -> ());
     (match (stderr : stderr option) with
      | Some Inherit -> W.Wasi_config.inherit_stderr config
+     | Some (File path) ->
+       if not (W.Wasi_config.set_stderr_file config path) then
+         failwith (Printf.sprintf "wasi_config_set_stderr_file failed: %s" path)
      | None -> ());
     List.iter
       (fun (host_path, guest_path) ->
