@@ -9,7 +9,7 @@ authors:      [ "Laurent Mazare" ]
 version: "dev"
 
 build: [
-  ["bash" "scripts/download_wasmtime.sh"]
+  ["bash" "scripts/setup_wasmtime.sh"]
   ["dune" "build" "-p" name "-j" jobs]
 ]
 
@@ -26,6 +26,30 @@ depends: [
 ]
 
 available: (arch = "x86_64" | arch = "arm64") & (os = "linux" | os = "macos")
+
+extra-source "wasmtime-c-api-arm64-macos.tar.xz" {
+  src: "https://github.com/bytecodealliance/wasmtime/releases/download/v41.0.3/wasmtime-v41.0.3-aarch64-macos-c-api.tar.xz"
+  checksum: "sha256=26c5880ec0351a26edcd4720233b53ddd29f75eb60f476e6a9965d900c86fca6"
+  available: arch = "arm64" & os = "macos"
+}
+
+extra-source "wasmtime-c-api-x86_64-macos.tar.xz" {
+  src: "https://github.com/bytecodealliance/wasmtime/releases/download/v41.0.3/wasmtime-v41.0.3-x86_64-macos-c-api.tar.xz"
+  checksum: "sha256=fa517e0c81080c2d975f6988cfdbaba0a492677587bbaf1d30711de4d80e2f4f"
+  available: arch = "x86_64" & os = "macos"
+}
+
+extra-source "wasmtime-c-api-arm64-linux.tar.xz" {
+  src: "https://github.com/bytecodealliance/wasmtime/releases/download/v41.0.3/wasmtime-v41.0.3-aarch64-linux-c-api.tar.xz"
+  checksum: "sha256=12858fe73e599157aa2bad5a180c595cb6f3e1cc523405134c9294d05d0ef3ed"
+  available: arch = "arm64" & os = "linux"
+}
+
+extra-source "wasmtime-c-api-x86_64-linux.tar.xz" {
+  src: "https://github.com/bytecodealliance/wasmtime/releases/download/v41.0.3/wasmtime-v41.0.3-x86_64-linux-c-api.tar.xz"
+  checksum: "sha256=0125e6e8a7a67bdf197e75a0d0a6a71224c12d9e28eb90aa4e1607416f9d9c02"
+  available: arch = "x86_64" & os = "linux"
+}
 
 synopsis: "Wasmtime bindings for OCaml"
 description: """

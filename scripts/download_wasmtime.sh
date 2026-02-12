@@ -1,5 +1,5 @@
 #!/bin/bash
-set -euox pipefail
+set -euo pipefail
 
 VERSION="41.0.3"
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -18,8 +18,7 @@ if [ -d "$DEST" ] && [ -f "$DEST/lib/libwasmtime.a" ]; then
   exit 0
 fi
 
-echo "Downloading wasmtime v${VERSION} for ${ARCH}-${OS} ($URL) to $DEST..."
+echo "Downloading wasmtime v${VERSION} for ${ARCH}-${OS}..."
 mkdir -p "$DEST"
-curl -L "$URL" > file.tar.xz
-cat file.tar.xz | tar xJ --strip-components=1 -C "$DEST"
+curl -sL "$URL" | tar xJ --strip-components=1 -C "$DEST"
 echo "Done: $DEST/lib/libwasmtime.a"
