@@ -10,7 +10,7 @@ license:      "Apache-2.0"
 version: "dev"
 
 build: [
-  ["bash" "scripts/setup_wasmtime.sh"]
+  ["ocaml" "scripts/setup.ml"]
   ["dune" "build" "-p" name "-j" jobs]
 ]
 
@@ -26,7 +26,7 @@ depends: [
   "ocaml" {>= "5.0"}
 ]
 
-available: (arch = "x86_64" | arch = "arm64") & (os = "linux" | os = "macos")
+available: (arch = "x86_64" | arch = "arm64") & (os = "linux" | os = "macos" | os = "win32")
 
 extra-source "wasmtime-c-api-arm64-macos.tar.xz" {
   src: "https://github.com/bytecodealliance/wasmtime/releases/download/v41.0.3/wasmtime-v41.0.3-aarch64-macos-c-api.tar.xz"
@@ -50,6 +50,12 @@ extra-source "wasmtime-c-api-x86_64-linux.tar.xz" {
   src: "https://github.com/bytecodealliance/wasmtime/releases/download/v41.0.3/wasmtime-v41.0.3-x86_64-linux-c-api.tar.xz"
   checksum: "sha256=0125e6e8a7a67bdf197e75a0d0a6a71224c12d9e28eb90aa4e1607416f9d9c02"
   available: arch = "x86_64" & os = "linux"
+}
+
+extra-source "wasmtime-c-api-x86_64-mingw.zip" {
+  src: "https://github.com/bytecodealliance/wasmtime/releases/download/v41.0.3/wasmtime-v41.0.3-x86_64-mingw-c-api.zip"
+  checksum: "sha256=ccc7ad01b54df1de2b9d28e67c4d848dadcee4152419d618c60087d9f8d56c06"
+  available: arch = "x86_64" & os = "win32"
 }
 
 synopsis: "Wasmtime bindings for OCaml"

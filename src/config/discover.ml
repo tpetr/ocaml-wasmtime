@@ -5,7 +5,17 @@ let empty_flags = { C.Pkg_config.cflags = []; libs = [] }
 let wasmtime_flags () =
   let config ~lib_dir =
     let cflags = ["-isystem"; Filename.concat lib_dir "include"] in
-    let libs = [Filename.concat (Filename.concat lib_dir "lib") "libwasmtime.a"] in
+    let lib_dir_path = Filename.concat lib_dir "lib" in
+    let lib_file =
+      (* Try Windows lib names first, then Unix *)
+      let candidates = [
+        "wasmtime.dll.lib"; "wasmtime.lib"; "libwasmtime.a"
+      ] in
+      match List.find_opt (fun f -> Sys.file_exists (Filename.concat lib_dir_path f)) candidates with
+      | Some f -> Filename.concat lib_dir_path f
+      | None -> Filename.concat lib_dir_path "libwasmtime.a"
+    in
+    let libs = [lib_file] in
     { C.Pkg_config.cflags; libs }
   in
   match Sys.getenv_opt "LIBWASMTIME" with
@@ -23,16 +33,18 @@ let wasmtime_flags () =
        | None -> empty_flags)
 
 let system_libs () =
-  let os =
-    let ic = Unix.open_process_in "uname -s" in
-    let os = input_line ic in (* nosemgrep *)
-    let os = String.trim os in
-    ignore (Unix.close_process_in ic);
-    String.lowercase_ascii os
-  in
-  match os with
-  | "linux" -> ["-ldl"; "-lm"]
-  | _ -> ["-lm"]
+  match Sys.os_type with
+  | "Win32" | "Cygwin" -> []
+  | _ ->
+    let is_linux =
+      try
+        let ic = Unix.open_process_in "uname -s" in
+        let os = String.trim (input_line ic) in (* nosemgrep *)
+        ignore (Unix.close_process_in ic);
+        String.lowercase_ascii os = "linux"
+      with _ -> false
+    in
+    if is_linux then ["-ldl"; "-lm"] else ["-lm"]
 
 let () =
   C.main ~name:"wasmtime-config" (fun _c ->
