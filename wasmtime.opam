@@ -11,22 +11,18 @@ version: "dev"
 build: [["dune" "build" "-p" name "-j" jobs]]
 
 run-test: [
-  ["dune" "runtest" "-p" name "-j" jobs] { os-distribution != "alpine" }
+  ["dune" "runtest" "-p" name "-j" jobs]
 ]
 
 depends: [
-  "base" {>= "v0.13.0" & < "v0.15"}
-  "ctypes" {>= "0.5"}
+  "ctypes" {>= "0.23.0"}
   "ctypes-foreign"
-  "dune" {>= "2.0.0" build}
+  "dune" {>= "3.0" & build}
   "dune-configurator"
-  "libwasmtime" {>= "0.22.0" & < "0.23.0"}
-  "ocaml" {>= "4.10"}
-  "ppx_expect" {>= "v0.13.0" & < "v0.15" with-test}
-  "stdio"
+  "ocaml" {>= "5.0"}
 ]
 
-available: arch = "x86_64" & (os = "linux" | os = "macos")
+available: (arch = "x86_64" | arch = "arm64") & (os = "linux" | os = "macos")
 
 synopsis: "Wasmtime bindings for OCaml"
 description: """

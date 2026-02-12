@@ -29,5 +29,5 @@ setup.log
 # Local OPAM switch
 _opam/
 
-wasmtime/lib
-wasmtime/include
+# Downloaded wasmtime C API
+_wasmtime/

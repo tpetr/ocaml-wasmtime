@@ -1,6 +1,3 @@
-open! Base
-open! Import
-
 module T = struct
   type t =
     | Int32 of int
@@ -14,15 +11,15 @@ include T
 
 let int_exn = function
   | Int32 i | Int64 i -> i
-  | Float32 f -> Printf.failwithf "expected an int, got f32 %f" f ()
-  | Float64 f -> Printf.failwithf "expected an int, got f64 %f" f ()
+  | Float32 f -> Printf.ksprintf failwith "expected an int, got f32 %f" f
+  | Float64 f -> Printf.ksprintf failwith "expected an int, got f64 %f" f
   | Extern_ref _ -> failwith "expected an int, got extern_ref"
 
 let float_exn = function
-  | Int32 i -> Printf.failwithf "expected a float, got i32 %d" i ()
-  | Int64 i -> Printf.failwithf "expected a float, got i64 %d" i ()
+  | Int32 i -> Printf.ksprintf failwith "expected a float, got i32 %d" i
+  | Int64 i -> Printf.ksprintf failwith "expected a float, got i64 %d" i
   | Float32 i | Float64 i -> i
-  | Extern_ref _ -> failwith "expected an int, got extern_ref"
+  | Extern_ref _ -> failwith "expected a float, got extern_ref"
 
 module Kind = struct
   type any_ref
@@ -80,9 +77,9 @@ module Kind = struct
     | Func_ref -> failwith "func_ref is not implemented"
 
   let unwrap_tuple : type a. a tuple -> T.t list -> a =
-   fun tuple list ->
+    fun tuple list ->
     let wrap_value : type b. b t -> T.t -> b =
-     fun t v ->
+      fun t v ->
       let type_mismatch ~expected =
         let type_ =
           match v with
@@ -92,7 +89,7 @@ module Kind = struct
           | Float64 _ -> "float64"
           | Extern_ref _ -> "externref"
         in
-        Printf.failwithf "type mismatch: expected %s, got %s" expected type_ ()
+        Printf.ksprintf failwith "type mismatch: expected %s, got %s" expected type_
       in
       match t, v with
       | Int32, Int32 i -> i
@@ -107,24 +104,23 @@ module Kind = struct
       | Func_ref, _ -> failwith "func_ref is not implemented"
     in
     let len_mismatch ~expected =
-      Printf.failwithf
+      Printf.ksprintf failwith
         "size mismatch: expected %d elements, got %d"
         expected
         (List.length list)
-        ()
     in
     match tuple, list with
     | T0, [] -> ()
     | T0, _ -> len_mismatch ~expected:0
     | T1 t, [ v ] -> wrap_value t v
     | T1 _, _ -> len_mismatch ~expected:1
-    | T2 (t0, t1), [ v0; v1 ] -> wrap_value t0 v0, wrap_value t1 v1
+    | T2 (t0, t1), [ v0; v1 ] -> (wrap_value t0 v0, wrap_value t1 v1)
     | T2 _, _ -> len_mismatch ~expected:2
     | T3 (t0, t1, t2), [ v0; v1; v2 ] ->
-      wrap_value t0 v0, wrap_value t1 v1, wrap_value t2 v2
+      (wrap_value t0 v0, wrap_value t1 v1, wrap_value t2 v2)
     | T3 _, _ -> len_mismatch ~expected:3
     | T4 (t0, t1, t2, t3), [ v0; v1; v2; v3 ] ->
-      wrap_value t0 v0, wrap_value t1 v1, wrap_value t2 v2, wrap_value t3 v3
+      (wrap_value t0 v0, wrap_value t1 v1, wrap_value t2 v2, wrap_value t3 v3)
     | T4 _, _ -> len_mismatch ~expected:4
     | T5 (t0, t1, t2, t3, t4), [ v0; v1; v2; v3; v4 ] ->
       ( wrap_value t0 v0

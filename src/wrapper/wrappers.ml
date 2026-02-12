@@ -1,61 +1,78 @@
-open Base
 open Import
 
 exception Trap of { message : string }
+
+(* v41 val kind constants *)
+let wasmtime_i32 = 0
+let wasmtime_i64 = 1
+let wasmtime_f32 = 2
+let wasmtime_f64 = 3
+let _wasmtime_funcref = 5
+let _wasmtime_externref = 6
+
+(* v41 extern kind constants *)
+let wasmtime_extern_func = 0
+let _wasmtime_extern_global = 1
+let _wasmtime_extern_table = 2
+let wasmtime_extern_memory = 3
 
 module Engine = struct
   type t = W.Engine.t
 
   let create
       ?debug_info
-      ?interruptable
       ?max_wasm_stack
       ?reference_types
       ?simd
       ?bulk_memory
       ?multi_value
-      ?static_memory_maximum_size
-      ?static_memory_guard_size
-      ?dynamic_memory_guard_size
+      ?memory_reservation
+      ?memory_guard_size
+      ?memory_reservation_for_growth
       ()
     =
     let config =
       let t = W.Config.new_ () in
-      Option.iter debug_info ~f:(W.Wasmtime.Config.debug_info_set t);
-      Option.iter interruptable ~f:(W.Wasmtime.Config.interruptable_set t);
-      Option.iter max_wasm_stack ~f:(fun sz ->
-          Unsigned.Size_t.of_int sz |> W.Wasmtime.Config.max_wasm_stack_set t);
-      Option.iter reference_types ~f:(W.Wasmtime.Config.reference_types_set t);
-      Option.iter simd ~f:(W.Wasmtime.Config.simd_set t);
-      Option.iter bulk_memory ~f:(W.Wasmtime.Config.bulk_memory_set t);
-      Option.iter multi_value ~f:(W.Wasmtime.Config.multi_value_set t);
-      Option.iter static_memory_maximum_size ~f:(fun sz ->
-          Int64.of_int sz |> W.Wasmtime.Config.static_memory_maximum_size_set t);
-      Option.iter static_memory_guard_size ~f:(fun sz ->
-          Int64.of_int sz |> W.Wasmtime.Config.static_memory_guard_size_set t);
-      Option.iter dynamic_memory_guard_size ~f:(fun sz ->
-          Int64.of_int sz |> W.Wasmtime.Config.dynamic_memory_guard_size_set t);
-      (* The ownership of the config is passed so no finalizer is added. *)
+      Option.iter (W.Wasmtime.Config.debug_info_set t) debug_info;
+      Option.iter
+        (fun sz -> Unsigned.Size_t.of_int sz |> W.Wasmtime.Config.max_wasm_stack_set t)
+        max_wasm_stack;
+      Option.iter (W.Wasmtime.Config.reference_types_set t) reference_types;
+      Option.iter (W.Wasmtime.Config.simd_set t) simd;
+      Option.iter (W.Wasmtime.Config.bulk_memory_set t) bulk_memory;
+      Option.iter (W.Wasmtime.Config.multi_value_set t) multi_value;
+      Option.iter
+        (fun sz -> Unsigned.UInt64.of_int sz |> W.Wasmtime.Config.memory_reservation_set t)
+        memory_reservation;
+      Option.iter
+        (fun sz -> Unsigned.UInt64.of_int sz |> W.Wasmtime.Config.memory_guard_size_set t)
+        memory_guard_size;
+      Option.iter
+        (fun sz ->
+          Unsigned.UInt64.of_int sz
+          |> W.Wasmtime.Config.memory_reservation_for_growth_set t)
+        memory_reservation_for_growth;
       t
     in
     let t = W.Engine.new_with_config config in
     if Ctypes.is_null t then failwith "Engine.new_ returned null";
-    Caml.Gc.finalise W.Engine.delete t;
+    Gc.finalise W.Engine.delete t;
     t
 end
 
 module Store = struct
-  type t = W.Store.t
+  type t = { store : W.Store.t; context : W.Context.t }
 
   let create engine =
-    let t = W.Store.new_ engine in
-    if Ctypes.is_null t then failwith "Store.new_ returned null";
-    Caml.Gc.finalise
-      (fun t ->
+    let store = W.Store.new_ engine Ctypes.null Ctypes.null in
+    if Ctypes.is_null store then failwith "Store.new_ returned null";
+    let context = W.Context.of_store store in
+    Gc.finalise
+      (fun store ->
         keep_alive engine;
-        W.Store.delete t)
-      t;
-    t
+        W.Store.delete store)
+      store;
+    { store; context }
 end
 
 module Byte_vec = struct
@@ -64,16 +81,16 @@ module Byte_vec = struct
   let with_finalise ~f =
     let t = Ctypes.allocate_n W.Byte_vec.struct_ ~count:1 in
     f t;
-    Caml.Gc.finalise W.Byte_vec.delete t;
+    Gc.finalise W.Byte_vec.delete t;
     t
 
   let create ~len =
     with_finalise ~f:(fun t ->
-        W.Byte_vec.new_uninitialized t (Unsigned.Size_t.of_int len))
+      W.Byte_vec.new_uninitialized t (Unsigned.Size_t.of_int len))
 
   let of_string str =
     with_finalise ~f:(fun t ->
-        W.Byte_vec.new_ t (String.length str |> Unsigned.Size_t.of_int) str)
+      W.Byte_vec.new_ t (String.length str |> Unsigned.Size_t.of_int) str)
 
   let length t =
     let t = Ctypes.( !@ ) t in
@@ -86,118 +103,83 @@ module Byte_vec = struct
     Ctypes.string_from_ptr data ~length
 end
 
-module Trap = struct
+module Trap_ = struct
   type t = W.Trap.t
 
   let maybe_fail (t : t) =
-    if not (Ctypes.is_null t)
-    then (
+    if not (Ctypes.is_null t) then begin
       let message =
         Byte_vec.with_finalise ~f:(fun message -> W.Trap.message t message)
         |> Byte_vec.to_string
       in
       W.Trap.delete t;
-      raise (Trap { message }))
+      raise (Trap { message })
+    end
 end
 
 module Module = struct
   type t = W.Module.t
 end
 
-module Instance = struct
-  type t = W.Instance.t
-
-  let exports t =
-    let extern_vec = Ctypes.allocate_n W.Extern_vec.struct_ ~count:1 in
-    W.Instance.exports t extern_vec;
-    let extern_vec = Ctypes.( !@ ) extern_vec in
-    let size = Ctypes.getf extern_vec W.Extern_vec.size |> Unsigned.Size_t.to_int in
-    let data = Ctypes.getf extern_vec W.Extern_vec.data in
-    let externs =
-      List.init size ~f:(fun i ->
-          let extern = Ctypes.( +@ ) data i in
-          if Ctypes.is_null extern then failwith "exports returned null";
-          let extern = Ctypes.( !@ ) extern in
-          Caml.Gc.finalise
-            (fun extern ->
-              keep_alive t;
-              W.Extern.delete extern)
-            extern;
-          extern)
-    in
-    keep_alive t;
-    externs
-end
-
+(* v41 value helpers - using wasmtime_val_t with wasmtime kind constants *)
 module V = struct
   let kind_to_c = function
-    | Val.Kind.P Int32 -> 0
-    | P Int64 -> 1
-    | P Float32 -> 2
-    | P Float64 -> 3
-    | P Any_ref -> 128
-    | P Func_ref -> 129
+    | Val.Kind.P Int32 -> wasmtime_i32
+    | P Int64 -> wasmtime_i64
+    | P Float32 -> wasmtime_f32
+    | P Float64 -> wasmtime_f64
+    | P Any_ref -> _wasmtime_externref
+    | P Func_ref -> _wasmtime_funcref
 
   let kind_of_c = function
     | 0 -> Val.Kind.P Int32
     | 1 -> P Int64
     | 2 -> P Float32
     | 3 -> P Float64
-    | 128 -> P Any_ref
-    | 129 -> P Func_ref
-    | otherwise -> Printf.failwithf "unexpected Val.kind value %d" otherwise ()
+    | 6 -> P Any_ref
+    | 5 -> P Func_ref
+    | otherwise -> Printf.ksprintf failwith "unexpected Val.kind value %d" otherwise
 
   let of_ptr ptr =
     let struct_ = Ctypes.( !@ ) ptr in
     let kind = Ctypes.getf struct_ W.Val.kind |> Unsigned.UInt8.to_int |> kind_of_c in
-    let op = Ctypes.getf struct_ W.Val.op in
+    let of_ = Ctypes.getf struct_ W.Val.of_ in
     match (kind : Val.Kind.packed) with
-    | P Int32 -> Val.Int32 (Ctypes.getf op W.Val.i32 |> Int32.to_int_exn)
-    | P Int64 -> Int64 (Ctypes.getf op W.Val.i64 |> Int64.to_int_exn)
-    | P Float32 -> Float32 (Ctypes.getf op W.Val.f32)
-    | P Float64 -> Float64 (Ctypes.getf op W.Val.f64)
-    | P Any_ref -> Extern_ref (Extern_ref.Private.of_val ptr)
+    | P Int32 -> Val.Int32 (Ctypes.getf of_ W.Val_union.i32 |> Int32.to_int)
+    | P Int64 -> Int64 (Ctypes.getf of_ W.Val_union.i64 |> Int64.to_int)
+    | P Float32 -> Float32 (Ctypes.getf of_ W.Val_union.f32)
+    | P Float64 -> Float64 (Ctypes.getf of_ W.Val_union.f64)
+    | P Any_ref -> failwith "externref return values are not yet supported in v41 bindings"
     | P Func_ref -> failwith "func_ref returned results are not supported"
 
   let to_struct t struct_ =
     let kind = Val.kind t |> kind_to_c |> Unsigned.UInt8.of_int in
     Ctypes.setf struct_ W.Val.kind kind;
-    let op = Ctypes.getf struct_ W.Val.op in
+    let of_ = Ctypes.getf struct_ W.Val.of_ in
     match t with
-    | Int32 i -> Ctypes.setf op W.Val.i32 (Int32.of_int_exn i)
-    | Int64 i -> Ctypes.setf op W.Val.i64 (Int64.of_int_exn i)
-    | Float32 f -> Ctypes.setf op W.Val.f32 f
-    | Float64 f -> Ctypes.setf op W.Val.f64 f
-    | Extern_ref _ -> assert false
+    | Int32 i -> Ctypes.setf of_ W.Val_union.i32 (Int32.of_int i)
+    | Int64 i -> Ctypes.setf of_ W.Val_union.i64 (Int64.of_int i)
+    | Float32 f -> Ctypes.setf of_ W.Val_union.f32 f
+    | Float64 f -> Ctypes.setf of_ W.Val_union.f64 f
+    | Extern_ref _ -> failwith "externref arguments are not yet supported in v41 bindings"
 
   let copy t ptr =
     match (t : Val.t) with
-    | Extern_ref extern_ref -> W.Val.copy ptr (Extern_ref.Private.to_val extern_ref)
+    | Extern_ref _ -> failwith "externref values are not yet supported in v41 bindings"
     | _ -> Ctypes.( !@ ) ptr |> to_struct t
 end
 
 module Func_type = struct
-  let val_type kind = V.kind_to_c kind |> Unsigned.UInt8.of_int |> W.Val_type.new_
-  let val_type_i32 = lazy (val_type (P Int32))
-  let val_type_i64 = lazy (val_type (P Int64))
-  let val_type_f32 = lazy (val_type (P Float32))
-  let val_type_f64 = lazy (val_type (P Float64))
-  let val_type_any_ref = lazy (val_type (P Any_ref))
-  let val_type_func_ref = lazy (val_type (P Func_ref))
-
-  let val_type = function
-    | Val.Kind.P Int32 -> Lazy.force val_type_i32
-    | P Int64 -> Lazy.force val_type_i64
-    | P Float32 -> Lazy.force val_type_f32
-    | P Float64 -> Lazy.force val_type_f64
-    | P Any_ref -> Lazy.force val_type_any_ref
-    | P Func_ref -> Lazy.force val_type_func_ref
+  (* Each call to val_type must create a FRESH wasm_valtype_t because
+     wasm_valtype_vec_new/wasm_functype_new take ownership of the pointers. *)
+  let val_type kind =
+    V.kind_to_c kind |> Unsigned.UInt8.of_int |> W.Val_type.new_
 
   let create ~args ~results =
     let vec_list l =
       let count = List.length l in
-      let vec = Ctypes.allocate_n W.Val_type.t ~count in
-      List.iteri l ~f:(fun idx v -> Ctypes.(vec +@ idx <-@ val_type v));
+      let vec = Ctypes.allocate_n W.Val_type.t ~count:(max count 1) in
+      List.iteri (fun idx v -> Ctypes.(vec +@ idx <-@ val_type v)) l;
       let out = Ctypes.allocate_n W.Val_type_vec.struct_ ~count:1 in
       W.Val_type_vec.new_ out (Unsigned.Size_t.of_int count) vec;
       out
@@ -205,66 +187,83 @@ module Func_type = struct
     let args = vec_list args in
     let results = vec_list results in
     let t = W.Func_type.new_ args results in
-    Caml.Gc.finalise W.Func_type.delete t;
+    Gc.finalise W.Func_type.delete t;
     t
 end
 
 module Func = struct
-  type t = W.Func.t
+  (* In v41, wasmtime_func_t is a small value struct. We store a copy on the heap. *)
+  type t = W.Func.struct_ Ctypes.ptr
 
-  let of_func store func_type f =
+  let of_func_list ~args ~results (store : Store.t) f =
+    let func_type = Func_type.create ~args ~results in
+    let nargs = List.length args in
+    let nresults = List.length results in
     let callback =
       let open Ctypes in
       coerce
-        (Foreign.funptr (W.Val.t @-> W.Val.t @-> returning W.Trap.t))
-        (static_funptr (W.Val.t @-> W.Val.t @-> returning W.Trap.t))
-        (fun args results ->
+        (Foreign.funptr
+           (ptr void @-> W.Caller.t @-> ptr W.Val.struct_ @-> size_t
+            @-> ptr W.Val.struct_ @-> size_t @-> returning W.Trap.t))
+        (static_funptr
+           (ptr void @-> W.Caller.t @-> ptr W.Val.struct_ @-> size_t
+            @-> ptr W.Val.struct_ @-> size_t @-> returning W.Trap.t))
+        (fun _env _caller args_val _nargs results_val _nresults ->
           try
-            f args results;
+            let args =
+              List.init nargs (fun idx ->
+                Ctypes.( +@ ) args_val idx |> V.of_ptr)
+            in
+            let r = f args in
+            if List.length r <> nresults then
+              Printf.ksprintf failwith
+                "callback returned %d values, expected %d"
+                (List.length r) nresults;
+            List.iteri
+              (fun idx val_ -> V.copy val_ (Ctypes.( +@ ) results_val idx))
+              r;
             Ctypes.from_voidp W.Trap.struct_ Ctypes.null
-          with
-          | exn ->
-            (* The returned message should end with a 0 byte and the size
-              should reflect this additional byte. *)
-            let byte_vec = Exn.to_string exn ^ "\000" |> Byte_vec.of_string in
-            let trap = W.Trap.new_ store byte_vec in
-            Caml.Gc.finalise
-              (fun _trap ->
-                keep_alive byte_vec (* [trap] is not freed as the ownership is passed. *))
-              trap;
+          with exn ->
+            let msg = Printexc.to_string exn ^ "\000" in
+            let trap =
+              W.Trap.new_ msg (String.length msg |> Unsigned.Size_t.of_int)
+            in
             trap)
     in
-    let t = W.Func.new_ store func_type callback in
-    if Ctypes.is_null t then failwith "Func.new returned null";
-    Caml.Gc.finalise
-      (fun t ->
-        keep_alive callback;
-        keep_alive func_type;
-        W.Func.delete t)
-      t;
-    t
+    let ret = Ctypes.allocate_n W.Func.struct_ ~count:1 in
+    W.Wasmtime.func_new store.context func_type callback Ctypes.null Ctypes.null ret;
+    (* No delete needed for wasmtime_func_t - it's a value type *)
+    Gc.finalise
+      (fun _ret -> keep_alive (callback, func_type, store))
+      ret;
+    ret
 
-  let of_func_0_0 store f =
+  let of_func_0_0 (store : Store.t) f =
     let func_type = W.Func_type.new_0_0 () in
-    Caml.Gc.finalise (fun func_type -> W.Func_type.delete func_type) func_type;
-    of_func store func_type (fun _args _results -> f ())
-
-  let of_func_list ~args ~results store f =
-    let func_type = Func_type.create ~args ~results in
-    Caml.Gc.finalise (fun func_type -> W.Func_type.delete func_type) func_type;
-    of_func store func_type (fun args_val results_val ->
-        let args =
-          List.mapi args ~f:(fun idx _arg_type -> Ctypes.( +@ ) args_val idx |> V.of_ptr)
-        in
-        let r = f args in
-        if List.length r <> List.length results
-        then
-          Printf.failwithf
-            "callback returned %d values, expected %d"
-            (List.length r)
-            (List.length results)
-            ();
-        List.iteri r ~f:(fun idx val_ -> V.copy val_ (Ctypes.( +@ ) results_val idx)))
+    Gc.finalise W.Func_type.delete func_type;
+    let callback =
+      let open Ctypes in
+      coerce
+        (Foreign.funptr
+           (ptr void @-> W.Caller.t @-> ptr W.Val.struct_ @-> size_t
+            @-> ptr W.Val.struct_ @-> size_t @-> returning W.Trap.t))
+        (static_funptr
+           (ptr void @-> W.Caller.t @-> ptr W.Val.struct_ @-> size_t
+            @-> ptr W.Val.struct_ @-> size_t @-> returning W.Trap.t))
+        (fun _env _caller _args _nargs _results _nresults ->
+          try
+            f ();
+            Ctypes.from_voidp W.Trap.struct_ Ctypes.null
+          with exn ->
+            let msg = Printexc.to_string exn ^ "\000" in
+            W.Trap.new_ msg (String.length msg |> Unsigned.Size_t.of_int))
+    in
+    let ret = Ctypes.allocate_n W.Func.struct_ ~count:1 in
+    W.Wasmtime.func_new store.context func_type callback Ctypes.null Ctypes.null ret;
+    Gc.finalise
+      (fun _ret -> keep_alive (callback, func_type, store))
+      ret;
+    ret
 
   let of_func ~args ~results store f =
     of_func_list
@@ -276,170 +275,219 @@ module Func = struct
 end
 
 module Memory = struct
-  type t = W.Memory.t
+  (* In v41, wasmtime_memory_t is a small value struct. *)
+  type t = W.Memory.struct_ Ctypes.ptr
 
-  let size_in_pages t = W.Memory.size t |> Unsigned.Size_t.to_int
-  let size_in_bytes t = W.Memory.data_size t |> Unsigned.Size_t.to_int
-  let grow t size = W.Memory.grow t (Unsigned.UInt32.of_int size)
+  let size_in_pages (store : Store.t) t =
+    W.Wasmtime.memory_size store.context t |> Unsigned.UInt64.to_int
 
-  let to_string t ~pos ~len =
+  let size_in_bytes (store : Store.t) t =
+    W.Wasmtime.memory_data_size store.context t |> Unsigned.Size_t.to_int
+
+  let grow (store : Store.t) t size =
+    let prev_size = Ctypes.allocate_n Ctypes.uint64_t ~count:1 in
+    let err =
+      W.Wasmtime.memory_grow store.context t (Unsigned.UInt64.of_int size) prev_size
+    in
+    Ctypes.is_null err
+
+  let to_string (store : Store.t) t ~pos ~len =
     if pos < 0 then Printf.sprintf "negative pos %d" pos |> invalid_arg;
     if len < 0 then Printf.sprintf "negative len %d" len |> invalid_arg;
-    let size_in_bytes = size_in_bytes t in
-    if pos + len > size_in_bytes
-    then
+    let size_in_bytes =
+      W.Wasmtime.memory_data_size store.context t |> Unsigned.Size_t.to_int
+    in
+    if pos + len > size_in_bytes then
       Printf.sprintf "pos (%d) + len (%d) > size_in_bytes (%d)" pos len size_in_bytes
       |> invalid_arg;
-    let ptr = Ctypes.( +@ ) (W.Memory.data t) pos in
+    let ptr = W.Wasmtime.memory_data store.context t in
+    let char_ptr = Ctypes.coerce (Ctypes.ptr Ctypes.uint8_t) (Ctypes.ptr Ctypes.char) ptr in
+    let ptr = Ctypes.( +@ ) char_ptr pos in
     Ctypes.string_from_ptr ptr ~length:len
 
-  let get t ~pos =
+  let get (store : Store.t) t ~pos =
     if pos < 0 then Printf.sprintf "negative pos %d" pos |> invalid_arg;
-    let size_in_bytes = size_in_bytes t in
-    if pos >= size_in_bytes
-    then Printf.sprintf "pos (%d) >= size_in_bytes (%d)" pos size_in_bytes |> invalid_arg;
-    let ptr = Ctypes.( +@ ) (W.Memory.data t) pos in
-    Ctypes.( !@ ) ptr
+    let size_in_bytes =
+      W.Wasmtime.memory_data_size store.context t |> Unsigned.Size_t.to_int
+    in
+    if pos >= size_in_bytes then
+      Printf.sprintf "pos (%d) >= size_in_bytes (%d)" pos size_in_bytes |> invalid_arg;
+    let ptr = W.Wasmtime.memory_data store.context t in
+    let v = Ctypes.( !@ ) (Ctypes.( +@ ) ptr pos) in
+    Char.chr (Unsigned.UInt8.to_int v)
 
-  let set t ~pos chr =
+  let set (store : Store.t) t ~pos chr =
     if pos < 0 then Printf.sprintf "negative pos %d" pos |> invalid_arg;
-    let size_in_bytes = size_in_bytes t in
-    if pos >= size_in_bytes
-    then Printf.sprintf "pos (%d) >= size_in_bytes (%d)" pos size_in_bytes |> invalid_arg;
-    let p = Ctypes.( +@ ) (W.Memory.data t) pos in
-    Ctypes.(p <-@ chr)
+    let size_in_bytes =
+      W.Wasmtime.memory_data_size store.context t |> Unsigned.Size_t.to_int
+    in
+    if pos >= size_in_bytes then
+      Printf.sprintf "pos (%d) >= size_in_bytes (%d)" pos size_in_bytes |> invalid_arg;
+    let ptr = W.Wasmtime.memory_data store.context t in
+    let p = Ctypes.( +@ ) ptr pos in
+    Ctypes.(p <-@ Unsigned.UInt8.of_int (Char.code chr))
 end
 
 module Extern = struct
-  type t = W.Extern.t
+  (* In v41, wasmtime_extern_t is a discriminated union struct *)
+  type t = W.Extern.struct_ Ctypes.ptr
 
   let as_memory t =
-    let mem = W.Extern.as_memory t in
-    if Ctypes.is_null mem then failwith "Extern.as_memory returned null";
-    (* The returned memory is owned by the extern so there is no need to
-    delete it but it only stays alive until t does. *)
-    Caml.Gc.finalise (fun _mem -> keep_alive t) mem;
-    mem
+    let s = Ctypes.( !@ ) t in
+    let k = Ctypes.getf s W.Extern.kind |> Unsigned.UInt8.to_int in
+    if k <> wasmtime_extern_memory then failwith "Extern.as_memory: not a memory";
+    let u = Ctypes.getf s W.Extern.of_ in
+    let mem_struct = Ctypes.getf u W.Extern_union.memory in
+    let p = Ctypes.allocate W.Memory.struct_ mem_struct in
+    p
 
   let as_func t =
-    let func = W.Extern.as_func t in
-    if Ctypes.is_null func then failwith "Extern.as_func returned null";
-    (* The returned func is owned by the extern so there is no need to
-    delete it but it only stays alive until t does. *)
-    Caml.Gc.finalise (fun _func -> keep_alive t) func;
-    func
+    let s = Ctypes.( !@ ) t in
+    let k = Ctypes.getf s W.Extern.kind |> Unsigned.UInt8.to_int in
+    if k <> wasmtime_extern_func then failwith "Extern.as_func: not a func";
+    let u = Ctypes.getf s W.Extern.of_ in
+    let func_struct = Ctypes.getf u W.Extern_union.func in
+    let p = Ctypes.allocate W.Func.struct_ func_struct in
+    p
 
   let func_as func =
-    let t = W.Extern.func_as func in
-    if Ctypes.is_null t then failwith "Extern.func_as returned null";
-    (* The returned func is owned by the func so there is no need to
-    delete it but it only stays alive until t does. *)
-    Caml.Gc.finalise (fun _func -> keep_alive func) t;
-    t
+    let ext = Ctypes.allocate_n W.Extern.struct_ ~count:1 in
+    let s = Ctypes.( !@ ) ext in
+    Ctypes.setf s W.Extern.kind (Unsigned.UInt8.of_int wasmtime_extern_func);
+    let u = Ctypes.getf s W.Extern.of_ in
+    Ctypes.setf u W.Extern_union.func (Ctypes.( !@ ) func);
+    (* Write back *)
+    Ctypes.(ext <-@ s);
+    ext
 end
 
-module Wasi_instance = struct
-  type t = W.Wasi_instance.t
+module Instance = struct
+  type t = W.Instance.struct_ Ctypes.ptr
 
-  let create
+  let exports (store : Store.t) t =
+    let rec loop acc idx =
+      let name_ptr = Ctypes.allocate_n (Ctypes.ptr Ctypes.char) ~count:1 in
+      let name_len = Ctypes.allocate_n Ctypes.size_t ~count:1 in
+      let item = Ctypes.allocate_n W.Extern.struct_ ~count:1 in
+      let found =
+        W.Instance.export_nth
+          store.context t (Unsigned.Size_t.of_int idx) name_ptr name_len item
+      in
+      if found then loop (item :: acc) (idx + 1)
+      else List.rev acc
+    in
+    loop [] 0
+end
+
+module Wasi = struct
+  let configure
       ?(inherit_argv = false)
       ?(inherit_env = false)
       ?(inherit_stdin = false)
       ?(inherit_stdout = false)
       ?(inherit_stderr = false)
       ?(preopen_dirs = [])
-      store
-      name
+      (store : Store.t)
     =
-    let trap = Ctypes.allocate W.Trap.t (Ctypes.from_voidp W.Trap.struct_ Ctypes.null) in
-    let name =
-      match name with
-      | `wasi_unstable -> "wasi_unstable"
-      | `wasi_snapshot_preview -> "wasi_snapshot_preview1"
-    in
-    (* It seems that the rust implementation of wasi_instance_new takes
-       ownership of the config via a Box<_>. *)
     let config = W.Wasi_config.new_ () in
-    if Ctypes.is_null config then failwith "Wasi_config.new retuned null";
+    if Ctypes.is_null config then failwith "Wasi_config.new returned null";
     if inherit_argv then W.Wasi_config.inherit_argv config;
     if inherit_env then W.Wasi_config.inherit_env config;
     if inherit_stdin then W.Wasi_config.inherit_stdin config;
     if inherit_stdout then W.Wasi_config.inherit_stdout config;
     if inherit_stderr then W.Wasi_config.inherit_stderr config;
-    List.iter preopen_dirs ~f:(fun (dir1, dir2) ->
-        ignore (W.Wasi_config.preopen_dir config dir1 dir2 : bool));
-    let t = W.Wasi_instance.new_ store name config trap in
-    Ctypes.( !@ ) trap |> Trap.maybe_fail;
-    if Ctypes.is_null t then failwith "Wasi_instance.new returned null";
-    Caml.Gc.finalise
-      (fun t ->
-        keep_alive (config, store);
-        W.Wasi_instance.delete t)
-      t;
-    t
+    List.iter
+      (fun (host_path, guest_path) ->
+        (* dir_perms = READ|WRITE = 3, file_perms = READ|WRITE = 3 *)
+        let _ok =
+          W.Wasi_config.preopen_dir config host_path guest_path
+            (Unsigned.Size_t.of_int 3) (Unsigned.Size_t.of_int 3)
+        in
+        ())
+      preopen_dirs;
+    (* Ownership of config is passed to context_set_wasi *)
+    let fail_on_error error =
+      if not (Ctypes.is_null error) then begin
+        let message =
+          Byte_vec.with_finalise ~f:(fun message -> W.Error.message error message)
+          |> Byte_vec.to_string
+        in
+        W.Error.delete error;
+        failwith message
+      end
+    in
+    W.Wasmtime.context_set_wasi store.context config |> fail_on_error
 end
 
 module Wasmtime = struct
   let fail_on_error error =
-    if not (Ctypes.is_null error)
-    then (
+    if not (Ctypes.is_null error) then begin
       let message =
         Byte_vec.with_finalise ~f:(fun message -> W.Error.message error message)
         |> Byte_vec.to_string
       in
       W.Error.delete error;
-      failwith message)
+      failwith message
+    end
 
   let wat_to_wasm ~wat =
-    Byte_vec.with_finalise ~f:(fun wasm -> W.Wasmtime.wat2wasm wat wasm |> fail_on_error)
+    let wat_str = Byte_vec.to_string wat in
+    let wat_len = Byte_vec.length wat in
+    Byte_vec.with_finalise ~f:(fun wasm ->
+      W.Wasmtime.wat2wasm wat_str (Unsigned.Size_t.of_int wat_len) wasm
+      |> fail_on_error)
 
   let new_module engine ~wasm =
-    let modl =
-      Ctypes.allocate W.Module.t (Ctypes.from_voidp W.Module.struct_ Ctypes.null)
-    in
-    W.Wasmtime.new_module engine wasm modl |> fail_on_error;
+    let wasm_data = Byte_vec.to_string wasm in
+    let wasm_len = Byte_vec.length wasm in
+    let buf = Ctypes.allocate_n Ctypes.uint8_t ~count:wasm_len in
+    for i = 0 to wasm_len - 1 do
+      Ctypes.(buf +@ i <-@ Unsigned.UInt8.of_int (Char.code wasm_data.[i]))
+    done;
+    let modl = Ctypes.allocate W.Module.t (Ctypes.from_voidp W.Module.struct_ Ctypes.null) in
+    W.Wasmtime.new_module engine buf (Unsigned.Size_t.of_int wasm_len) modl
+    |> fail_on_error;
     let modl = Ctypes.( !@ ) modl in
     if Ctypes.is_null modl then failwith "new_module returned null";
-    Caml.Gc.finalise
+    Gc.finalise
       (fun modl ->
         keep_alive engine;
         W.Module.delete modl)
       modl;
     modl
 
-  let new_instance ?(imports = []) store modl =
-    let instance =
-      Ctypes.allocate W.Instance.t (Ctypes.from_voidp W.Instance.struct_ Ctypes.null)
+  let new_instance ?(imports = []) (store : Store.t) modl =
+    let instance = Ctypes.allocate_n W.Instance.struct_ ~count:1 in
+    let trap =
+      Ctypes.allocate W.Trap.t (Ctypes.from_voidp W.Trap.struct_ Ctypes.null)
     in
-    let trap = Ctypes.allocate W.Trap.t (Ctypes.from_voidp W.Trap.struct_ Ctypes.null) in
-    let n_imports = List.length imports |> Unsigned.Size_t.of_int in
-    let imports = Ctypes.CArray.of_list W.Extern.t imports in
+    let n_imports = List.length imports in
+    let imports_arr = Ctypes.allocate_n W.Extern.struct_ ~count:(max n_imports 1) in
+    List.iteri
+      (fun idx ext -> Ctypes.(imports_arr +@ idx <-@ Ctypes.( !@ ) ext))
+      imports;
     W.Wasmtime.new_instance
-      store
+      store.context
       modl
-      (Ctypes.CArray.start imports)
-      n_imports
+      imports_arr
+      (Unsigned.Size_t.of_int n_imports)
       instance
       trap
     |> fail_on_error;
-    keep_alive imports;
-    Ctypes.( !@ ) trap |> Trap.maybe_fail;
-    let instance = Ctypes.( !@ ) instance in
-    if Ctypes.is_null instance then failwith "new_instance returned null";
-    Caml.Gc.finalise
-      (fun instance ->
-        keep_alive (store, modl);
-        W.Instance.delete instance)
-      instance;
+    keep_alive imports_arr;
+    Ctypes.( !@ ) trap |> Trap_.maybe_fail;
     instance
 
-  let func_call_list func args ~n_outputs =
-    let trap = Ctypes.allocate W.Trap.t (Ctypes.from_voidp W.Trap.struct_ Ctypes.null) in
+  let func_call_list (store : Store.t) func args ~n_outputs =
+    let trap =
+      Ctypes.allocate W.Trap.t (Ctypes.from_voidp W.Trap.struct_ Ctypes.null)
+    in
     let n_args = List.length args in
-    let args_ = Ctypes.allocate_n W.Val.struct_ ~count:n_args in
-    List.iteri args ~f:(fun idx val_ -> V.copy val_ (Ctypes.( +@ ) args_ idx));
-    let outputs = Ctypes.allocate_n W.Val.struct_ ~count:n_outputs in
+    let args_ = Ctypes.allocate_n W.Val.struct_ ~count:(max n_args 1) in
+    List.iteri (fun idx val_ -> V.copy val_ (Ctypes.( +@ ) args_ idx)) args;
+    let outputs = Ctypes.allocate_n W.Val.struct_ ~count:(max n_outputs 1) in
     W.Wasmtime.func_call
+      store.context
       func
       args_
       (Unsigned.Size_t.of_int n_args)
@@ -447,79 +495,71 @@ module Wasmtime = struct
       (Unsigned.Size_t.of_int n_outputs)
       trap
     |> fail_on_error;
-    Ctypes.( !@ ) trap |> Trap.maybe_fail;
-    List.init n_outputs ~f:(fun idx -> Ctypes.( +@ ) outputs idx |> V.of_ptr)
+    Ctypes.( !@ ) trap |> Trap_.maybe_fail;
+    List.init n_outputs (fun idx -> Ctypes.( +@ ) outputs idx |> V.of_ptr)
 
-  let func_call0 func args =
-    match func_call_list func args ~n_outputs:0 with
+  let func_call0 store func args =
+    match func_call_list store func args ~n_outputs:0 with
     | [] -> ()
-    | l -> Printf.failwithf "expected no output, got %d" (List.length l) ()
+    | l -> Printf.ksprintf failwith "expected no output, got %d" (List.length l)
 
-  let func_call1 func args =
-    match func_call_list func args ~n_outputs:1 with
+  let func_call1 store func args =
+    match func_call_list store func args ~n_outputs:1 with
     | [ res ] -> res
-    | l -> Printf.failwithf "expected a single output, got %d" (List.length l) ()
+    | l -> Printf.ksprintf failwith "expected a single output, got %d" (List.length l)
 
-  let func_call2 func args =
-    match func_call_list func args ~n_outputs:2 with
-    | [ res1; res2 ] -> res1, res2
-    | l -> Printf.failwithf "expected two outputs, got %d" (List.length l) ()
+  let func_call2 store func args =
+    match func_call_list store func args ~n_outputs:2 with
+    | [ res1; res2 ] -> (res1, res2)
+    | l -> Printf.ksprintf failwith "expected two outputs, got %d" (List.length l)
 
-  let func_call ~args ~results func input_tuple =
+  let func_call ~args ~results store func input_tuple =
     Val.Kind.wrap_tuple args input_tuple
-    |> func_call_list func ~n_outputs:(Val.Kind.arity results)
+    |> func_call_list store func ~n_outputs:(Val.Kind.arity results)
     |> Val.Kind.unwrap_tuple results
 
   module Linker = struct
     type t = W.Wasmtime.Linker.t
 
-    let create store =
-      let t = W.Wasmtime.Linker.new_ store in
-      Caml.Gc.finalise
+    let create engine =
+      let t = W.Wasmtime.Linker.new_ engine in
+      Gc.finalise
         (fun t ->
-          keep_alive store;
+          keep_alive engine;
           W.Wasmtime.Linker.delete t)
         t;
       t
 
-    let define_wasi t wasi_instance =
-      W.Wasmtime.Linker.define_wasi t wasi_instance |> fail_on_error
+    let define_wasi t =
+      W.Wasmtime.Linker.define_wasi t |> fail_on_error
 
-    let define_instance t ~name instance =
-      W.Wasmtime.Linker.define_instance t name instance |> fail_on_error
+    let define_instance t (store : Store.t) ~name instance =
+      let name_len = String.length name in
+      W.Wasmtime.Linker.define_instance
+        t store.context name (Unsigned.Size_t.of_int name_len) instance
+      |> fail_on_error
 
-    let instantiate t modl =
-      let instance =
-        Ctypes.allocate W.Instance.t (Ctypes.from_voidp W.Instance.struct_ Ctypes.null)
-      in
+    let instantiate t (store : Store.t) modl =
+      let instance = Ctypes.allocate_n W.Instance.struct_ ~count:1 in
       let trap =
         Ctypes.allocate W.Trap.t (Ctypes.from_voidp W.Trap.struct_ Ctypes.null)
       in
-      W.Wasmtime.Linker.instantiate t modl instance trap |> fail_on_error;
-      Ctypes.( !@ ) trap |> Trap.maybe_fail;
-      let instance = Ctypes.( !@ ) instance in
-      if Ctypes.is_null instance then failwith "instantiate returned null";
-      Caml.Gc.finalise
-        (fun instance ->
-          keep_alive t;
-          W.Instance.delete instance)
-        instance;
+      W.Wasmtime.Linker.instantiate t store.context modl instance trap
+      |> fail_on_error;
+      Ctypes.( !@ ) trap |> Trap_.maybe_fail;
       instance
 
-    let module_ t ~name modl = W.Wasmtime.Linker.module_ t name modl |> fail_on_error
+    let module_ t (store : Store.t) ~name modl =
+      let name_len = String.length name in
+      W.Wasmtime.Linker.module_ t store.context name (Unsigned.Size_t.of_int name_len) modl
+      |> fail_on_error
 
-    let get_default t ~name =
-      let func =
-        Ctypes.allocate W.Func.t (Ctypes.from_voidp W.Func.struct_ Ctypes.null)
-      in
-      W.Wasmtime.Linker.get_default t name func |> fail_on_error;
-      let func = Ctypes.( !@ ) func in
-      if Ctypes.is_null func then failwith "Linker.get_default returned null";
-      Caml.Gc.finalise
-        (fun func ->
-          keep_alive t;
-          W.Func.delete func)
-        func;
+    let get_default t (store : Store.t) ~name =
+      let func = Ctypes.allocate_n W.Func.struct_ ~count:1 in
+      let name_len = String.length name in
+      W.Wasmtime.Linker.get_default
+        t store.context name (Unsigned.Size_t.of_int name_len) func
+      |> fail_on_error;
       func
   end
 end

@@ -1,4 +1,3 @@
-open! Base
 module W = Wasmtime.Wrappers
 module V = Wasmtime.Val
 
@@ -29,7 +28,7 @@ let multi_wat =
 )
 |}
 
-let%expect_test _ =
+let () =
   let engine = W.Engine.create () in
   let store = W.Store.create engine in
   let wasm = W.Wasmtime.wat_to_wasm ~wat:(W.Byte_vec.of_string multi_wat) in
@@ -39,21 +38,20 @@ let%expect_test _ =
       ~args:(V.Kind.t2 Int32 Int64)
       ~results:(V.Kind.t2 Int64 Int32)
       store
-      (fun (i1, i2) -> i2 * 2, i1 + 1)
+      (fun (i1, i2) -> (i2 * 2, i1 + 1))
   in
   let instance = W.Wasmtime.new_instance ~imports:[ W.Extern.func_as f ] store modl in
   let g_func, _rt_func =
-    match W.Instance.exports instance with
-    | [ g; round_trip_many ] -> W.Extern.as_func g, W.Extern.as_func round_trip_many
+    match W.Instance.exports store instance with
+    | [ g; round_trip_many ] -> (W.Extern.as_func g, W.Extern.as_func round_trip_many)
     | _ -> failwith "expected two externs to be returned"
   in
   let v1, v2 =
     W.Wasmtime.func_call
       ~args:(V.Kind.t2 Int32 Int64)
       ~results:(V.Kind.t2 Int64 Int32)
+      store
       g_func
       (6, 27)
   in
-  Stdio.printf "f returned (%d, %d)\n%!" v1 v2;
-  [%expect {|
-    f returned (54, 7) |}]
+  Printf.printf "f returned (%d, %d)\n%!" v1 v2

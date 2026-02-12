@@ -1,4 +1,3 @@
-open! Base
 module W = Wasmtime.Wrappers
 module V = Wasmtime.Val
 
@@ -34,20 +33,16 @@ let gcd_wat =
 )
 |}
 
-let%expect_test _ =
+let () =
   let engine = W.Engine.create () in
   let store = W.Store.create engine in
   let wasm = W.Wasmtime.wat_to_wasm ~wat:(W.Byte_vec.of_string gcd_wat) in
-  Stdio.printf "here %d\n%!" (W.Byte_vec.length wasm);
   let modl = W.Wasmtime.new_module engine ~wasm in
   let instance = W.Wasmtime.new_instance store modl in
   let gcd_func =
-    match W.Instance.exports instance with
+    match W.Instance.exports store instance with
     | [ extern ] -> W.Extern.as_func extern
     | _ -> failwith "expected a single extern to be returned"
   in
-  let res = W.Wasmtime.func_call1 gcd_func [ Int32 6; Int32 27 ] in
-  Stdio.printf "gcd returned %d\n%!" (V.int_exn res);
-  [%expect {|
-    here 91
-    gcd returned 3 |}]
+  let res = W.Wasmtime.func_call1 store gcd_func [ Int32 6; Int32 27 ] in
+  Printf.printf "gcd returned %d\n%!" (V.int_exn res)

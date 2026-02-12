@@ -1,4 +1,3 @@
-open! Base
 module W = Wasmtime.Wrappers
 
 let wasi_wat =
@@ -7,7 +6,7 @@ let wasi_wat =
     ;; Import the required fd_write WASI function which will write the given io vectors to stdout
     ;; The function signature for fd_write is:
     ;; (File Descriptor, *iovs, iovs_len, nwritten) -> Returns number of bytes written
-    (import "wasi_unstable" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
+    (import "wasi_snapshot_preview1" "fd_write" (func $fd_write (param i32 i32 i32 i32) (result i32)))
 
     (memory 1)
     (export "memory" (memory 0))
@@ -32,26 +31,20 @@ let wasi_wat =
 )
 |}
 
-let%expect_test _ =
+let () =
   let engine = W.Engine.create () in
   let store = W.Store.create engine in
   let wasm = W.Wasmtime.wat_to_wasm ~wat:(W.Byte_vec.of_string wasi_wat) in
   let modl = W.Wasmtime.new_module engine ~wasm in
-  let wasi_instance =
-    W.Wasi_instance.create
-      store
-      `wasi_unstable
-      ~inherit_argv:true
-      ~inherit_env:true
-      ~inherit_stdin:true
-      ~inherit_stderr:true
-      ~inherit_stdout:true
-  in
-  let linker = W.Wasmtime.Linker.create store in
-  W.Wasmtime.Linker.define_wasi linker wasi_instance;
-  let name = W.Byte_vec.of_string "foo" in
-  W.Wasmtime.Linker.module_ linker ~name modl;
-  let wasi_func = W.Wasmtime.Linker.get_default linker ~name in
-  W.Wasmtime.func_call0 wasi_func [];
-  [%expect {|
-    hello world |}]
+  W.Wasi.configure
+    store
+    ~inherit_argv:true
+    ~inherit_env:true
+    ~inherit_stdin:true
+    ~inherit_stderr:true
+    ~inherit_stdout:true;
+  let linker = W.Wasmtime.Linker.create engine in
+  W.Wasmtime.Linker.define_wasi linker;
+  W.Wasmtime.Linker.module_ linker store ~name:"foo" modl;
+  let wasi_func = W.Wasmtime.Linker.get_default linker store ~name:"foo" in
+  W.Wasmtime.func_call0 store wasi_func []

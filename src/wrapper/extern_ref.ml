@@ -1,15 +1,11 @@
-open! Base
-open! Import
+(* In v41, externref is a GC-managed struct within a store context.
+   We keep a simple string wrapper for now. The actual externref creation
+   happens in wrappers.ml when we have access to the context. *)
+type t = string
 
-type t = W.Val.t
-
-let of_string str =
-  let t = Ctypes.allocate_n W.Val.struct_ ~count:1 in
-  W.Val.extern_ref str t;
-  Caml.Gc.finalise W.Val.delete t;
-  t
+let of_string str = str
 
 module Private = struct
-  let to_val = Fn.id
-  let of_val = Fn.id
+  let to_string = Fun.id
+  let of_string = Fun.id
 end

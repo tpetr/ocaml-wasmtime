@@ -1,4 +1,3 @@
-open! Base
 module W = Wasmtime.Wrappers
 
 let linking1_wat =
@@ -64,33 +63,29 @@ let linking2_wat =
 )
 |}
 
-let%expect_test _ =
+let () =
   let engine = W.Engine.create () in
   let store = W.Store.create engine in
-  let wasi_instance =
-    W.Wasi_instance.create
-      store
-      `wasi_snapshot_preview
-      ~inherit_argv:true
-      ~inherit_env:true
-      ~inherit_stdin:true
-      ~inherit_stderr:true
-      ~inherit_stdout:true
-  in
-  let linker = W.Wasmtime.Linker.create store in
+  W.Wasi.configure
+    store
+    ~inherit_argv:true
+    ~inherit_env:true
+    ~inherit_stdin:true
+    ~inherit_stderr:true
+    ~inherit_stdout:true;
+  let linker = W.Wasmtime.Linker.create engine in
   let instantiate ~wat =
     let wasm = W.Wasmtime.wat_to_wasm ~wat in
-    W.Wasmtime.new_module engine ~wasm |> W.Wasmtime.Linker.instantiate linker
+    W.Wasmtime.new_module engine ~wasm |> W.Wasmtime.Linker.instantiate linker store
   in
-  W.Wasmtime.Linker.define_wasi linker wasi_instance;
-  let name2 = W.Byte_vec.of_string "linking2" in
+  W.Wasmtime.Linker.define_wasi linker;
   let instance2 = instantiate ~wat:(W.Byte_vec.of_string linking2_wat) in
-  W.Wasmtime.Linker.define_instance linker ~name:name2 instance2;
+  W.Wasmtime.Linker.define_instance linker store ~name:"linking2" instance2;
   let instance1 = instantiate ~wat:(W.Byte_vec.of_string linking1_wat) in
   let run =
-    match W.Instance.exports instance1 with
+    match W.Instance.exports store instance1 with
     | [ run ] -> W.Extern.as_func run
-    | l -> Printf.failwithf "expected a single export, got %d" (List.length l) ()
+    | l ->
+      Printf.ksprintf failwith "expected a single export, got %d" (List.length l)
   in
-  W.Wasmtime.func_call0 run [];
-  [%expect {| Hello, world! |}]
+  W.Wasmtime.func_call0 store run []

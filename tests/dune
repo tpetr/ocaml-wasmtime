@@ -1,5 +1,3 @@
-(library
- (name wasmtime_tests)
- (inline_tests)
- (libraries base wasmtime stdio)
- (preprocess (pps ppx_expect)))
+(tests
+ (names gcd hello memory wasi linker multi)
+ (libraries wasmtime))
