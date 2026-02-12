@@ -96,4 +96,46 @@ let () =
     W.Wasi.configure store ~stdin:(File stdin_path) ~stdout:(File stdout_path));
   check "File stdin + File stdout" ~expected:"hello from file" ~actual:(read_file stdout_path);
   Sys.remove stdin_path;
-  Sys.remove stdout_path
+  Sys.remove stdout_path;
+
+  (* Test 3: Bytes stdin + Capture stdout *)
+  let out = W.Wasi.create_capture () in
+  run_echo ~configure:(fun store ->
+    W.Wasi.configure store ~stdin:(Bytes "hello to capture") ~stdout:(Capture out));
+  check "Bytes stdin + Capture stdout"
+    ~expected:"hello to capture" ~actual:(W.Wasi.capture_contents out);
+
+  (* Test 4: Bytes stdin + Capture stderr (write to fd 2) *)
+  let stderr_wat =
+    {|
+(module
+    (import "wasi_snapshot_preview1" "fd_read"
+        (func $fd_read (param i32 i32 i32 i32) (result i32)))
+    (import "wasi_snapshot_preview1" "fd_write"
+        (func $fd_write (param i32 i32 i32 i32) (result i32)))
+    (memory 1)
+    (export "memory" (memory 0))
+    (func $main (export "_start")
+        (i32.store (i32.const 0) (i32.const 64))
+        (i32.store (i32.const 4) (i32.const 128))
+        (call $fd_read (i32.const 0) (i32.const 0) (i32.const 1) (i32.const 8))
+        drop
+        (i32.store (i32.const 4) (i32.load (i32.const 8)))
+        ;; Write to fd 2 (stderr) instead of fd 1
+        (call $fd_write (i32.const 2) (i32.const 0) (i32.const 1) (i32.const 8))
+        drop))
+|}
+  in
+  let err = W.Wasi.create_capture () in
+  let engine = W.Engine.create () in
+  let store = W.Store.create engine in
+  let wasm = W.Wasmtime.wat_to_wasm ~wat:(W.Byte_vec.of_string stderr_wat) in
+  let modl = W.Wasmtime.new_module engine ~wasm in
+  W.Wasi.configure store ~stdin:(Bytes "hello to stderr") ~stderr:(Capture err);
+  let linker = W.Wasmtime.Linker.create engine in
+  W.Wasmtime.Linker.define_wasi linker;
+  W.Wasmtime.Linker.module_ linker store ~name:"" modl;
+  let wasi_func = W.Wasmtime.Linker.get_default linker store ~name:"" in
+  W.Wasmtime.func_call0 store wasi_func [];
+  check "Bytes stdin + Capture stderr"
+    ~expected:"hello to stderr" ~actual:(W.Wasi.capture_contents err)

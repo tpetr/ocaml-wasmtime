@@ -367,6 +367,19 @@ module C (F : Cstubs.FOREIGN) = struct
         (t @-> string @-> string @-> size_t @-> size_t @-> returning bool)
   end
 
+  (* C-level capture buffer for stdout/stderr custom callbacks.
+     All buffering happens in C to avoid OCaml domain-lock issues. *)
+  module Capture_buf = struct
+    type t = unit ptr
+    let t : t typ = ptr void
+    let new_ = foreign "wasi_capture_buf_new" (void @-> returning t)
+    let set_stdout = foreign "wasi_capture_set_stdout" (Wasi_config.t @-> t @-> returning void)
+    let set_stderr = foreign "wasi_capture_set_stderr" (Wasi_config.t @-> t @-> returning void)
+    let data = foreign "wasi_capture_buf_data" (t @-> returning (ptr uchar))
+    let len = foreign "wasi_capture_buf_len" (t @-> returning size_t)
+    let free = foreign "wasi_capture_buf_free" (t @-> returning void)
+  end
+
   module Wasmtime = struct
     module Linker = struct
       type t = unit ptr

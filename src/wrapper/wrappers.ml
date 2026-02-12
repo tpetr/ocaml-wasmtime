@@ -381,8 +381,36 @@ end
 
 module Wasi = struct
   type stdin = Inherit | Bytes of string | File of string
-  type stdout = Inherit | File of string
-  type stderr = Inherit | File of string
+
+  type capture = {
+    cbuf : W.Capture_buf.t;
+    mutable result : string option;
+  }
+
+  type stdout = Inherit | File of string | Capture of capture
+  type stderr = Inherit | File of string | Capture of capture
+
+  let create_capture () =
+    let cbuf = W.Capture_buf.new_ () in
+    if Ctypes.is_null cbuf then failwith "wasi_capture_buf_new returned null";
+    { cbuf; result = None }
+
+  let capture_contents t =
+    match t.result with
+    | Some s -> s
+    | None ->
+      let len = W.Capture_buf.len t.cbuf |> Unsigned.Size_t.to_int in
+      let s =
+        if len > 0 then
+          let data = W.Capture_buf.data t.cbuf in
+          Ctypes.string_from_ptr
+            (Ctypes.coerce Ctypes.(ptr uchar) Ctypes.(ptr char) data)
+            ~length:len
+        else ""
+      in
+      W.Capture_buf.free t.cbuf;
+      t.result <- Some s;
+      s
 
   let configure
       ?(inherit_argv = false)
@@ -413,12 +441,16 @@ module Wasi = struct
      | Some (File path) ->
        if not (W.Wasi_config.set_stdout_file config path) then
          failwith (Printf.sprintf "wasi_config_set_stdout_file failed: %s" path)
+     | Some (Capture cap) ->
+       W.Capture_buf.set_stdout config cap.cbuf
      | None -> ());
     (match (stderr : stderr option) with
      | Some Inherit -> W.Wasi_config.inherit_stderr config
      | Some (File path) ->
        if not (W.Wasi_config.set_stderr_file config path) then
          failwith (Printf.sprintf "wasi_config_set_stderr_file failed: %s" path)
+     | Some (Capture cap) ->
+       W.Capture_buf.set_stderr config cap.cbuf
      | None -> ());
     List.iter
       (fun (host_path, guest_path) ->

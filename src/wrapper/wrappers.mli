@@ -87,8 +87,13 @@ end
 
 module Wasi : sig
   type stdin = Inherit | Bytes of string | File of string
-  type stdout = Inherit | File of string
-  type stderr = Inherit | File of string
+
+  type capture
+  val create_capture : unit -> capture
+  val capture_contents : capture -> string
+
+  type stdout = Inherit | File of string | Capture of capture
+  type stderr = Inherit | File of string | Capture of capture
 
   val configure
     :  ?inherit_argv:bool
