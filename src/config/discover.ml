@@ -31,9 +31,8 @@ let system_libs () =
     String.lowercase_ascii os
   in
   match os with
-  | "linux" -> ["-lpthread"; "-ldl"; "-lm"]
-  | "darwin" -> ["-lpthread"; "-lm"]
-  | _ -> ["-lpthread"; "-lm"]
+  | "linux" -> ["-ldl"; "-lm"]
+  | _ -> ["-lm"]
 
 let () =
   C.main ~name:"wasmtime-config" (fun _c ->
@@ -41,6 +40,6 @@ let () =
       try wasmtime_flags () with
       | _ -> empty_flags
     in
-    let sys_libs = try system_libs () with _ -> ["-lpthread"; "-lm"] in
+    let sys_libs = try system_libs () with _ -> ["-lm"] in
     C.Flags.write_sexp "c_flags.sexp" wasmtime_flags.cflags;
     C.Flags.write_sexp "c_library_flags.sexp" (wasmtime_flags.libs @ sys_libs))
