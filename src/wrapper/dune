@@ -7,8 +7,8 @@
 
 (rule
   (targets c_flags.sexp c_library_flags.sexp)
-  (deps    (:discover ../config/discover.exe))
-  (action  (run %{discover})))
+  (deps    (:discover ../config/discover.exe) (source_tree ../../wasmtime-c-api))
+  (action  (run %{discover} --wasmtime-dir ../../wasmtime-c-api)))
 
 (rule
   (targets bindings.ml)

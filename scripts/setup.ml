@@ -5,7 +5,7 @@
    by extra-source. When run locally, falls back to downloading via curl. *)
 
 let version = "41.0.3"
-let dest = "_wasmtime"
+let dest = "wasmtime-c-api"
 
 let () =
   if Sys.file_exists dest && Sys.file_exists (Filename.concat (Filename.concat dest "lib") "libwasmtime.a") then (
@@ -40,7 +40,7 @@ let extract_tar_xz file =
 let extract_zip file =
   run (Printf.sprintf "mkdir -p %s" dest);
   (* Windows 10+ tar handles zip; use a temp dir since zip has no --strip-components *)
-  let tmp = "_wasmtime_tmp" in
+  let tmp = "wasmtime-c-api-tmp" in
   run (Printf.sprintf "tar -xf %s -C ." file);
   (* The zip extracts to a directory like wasmtime-v41.0.3-x86_64-mingw-c-api/ *)
   let files = Sys.readdir "." in

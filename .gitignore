@@ -30,4 +30,4 @@ setup.log
 _opam/
 
 # Downloaded wasmtime C API
-_wasmtime/
+wasmtime-c-api/

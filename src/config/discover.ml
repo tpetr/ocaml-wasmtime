@@ -2,8 +2,14 @@ module C = Configurator.V1
 
 let empty_flags = { C.Pkg_config.cflags = []; libs = [] }
 
+let resolve_path p =
+  if Filename.is_relative p then Filename.concat (Sys.getcwd ()) p else p
+
+let wasmtime_dir = ref ""
+
 let wasmtime_flags () =
   let config ~lib_dir =
+    let lib_dir = resolve_path lib_dir in
     let cflags = ["-isystem"; Filename.concat lib_dir "include"] in
     let lib_dir_path = Filename.concat lib_dir "lib" in
     let lib_file =
@@ -18,12 +24,11 @@ let wasmtime_flags () =
     let libs = [lib_file] in
     { C.Pkg_config.cflags; libs }
   in
+  (* Priority: LIBWASMTIME env > --wasmtime-dir flag > OPAM_SWITCH_PREFIX *)
   match Sys.getenv_opt "LIBWASMTIME" with
   | Some lib_dir -> config ~lib_dir
   | None ->
-    (* Try _wasmtime/ in project root *)
-    let local_dir = Filename.concat (Sys.getcwd ()) "_wasmtime" in
-    if Sys.file_exists local_dir then config ~lib_dir:local_dir
+    if !wasmtime_dir <> "" then config ~lib_dir:!wasmtime_dir
     else
       (match Sys.getenv_opt "OPAM_SWITCH_PREFIX" with
        | Some prefix ->
@@ -47,7 +52,10 @@ let system_libs () =
     if is_linux then ["-ldl"; "-lm"] else ["-lm"]
 
 let () =
-  C.main ~name:"wasmtime-config" (fun _c ->
+  C.main ~name:"wasmtime-config"
+    ~args:[("--wasmtime-dir", Arg.Set_string wasmtime_dir,
+            "DIR Path to wasmtime C API directory")]
+    (fun _c ->
     let wasmtime_flags =
       try wasmtime_flags () with
       | _ -> empty_flags
