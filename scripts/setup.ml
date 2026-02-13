@@ -19,8 +19,33 @@ let run cmd =
     Printf.eprintf "Command failed (exit %d): %s\n" rc cmd;
     exit 1)
 
-(* Find a pre-downloaded archive matching wasmtime-c-api-*.{tar.xz,zip} *)
+let read_cmd cmd =
+  let tmp = Filename.temp_file "wasmtime_setup" ".txt" in
+  let rc = Sys.command (Printf.sprintf "%s > %s" cmd tmp) in
+  if rc <> 0 then (Printf.eprintf "Command failed: %s\n" cmd; exit 1);
+  let ic = open_in_bin tmp in
+  let s = String.trim (input_line ic) in (* nosemgrep *)
+  close_in ic;
+  Sys.remove tmp;
+  s
+
+let detect_platform () =
+  if Sys.win32 then ("mingw", "x86_64")
+  else
+    let os = match String.lowercase_ascii (read_cmd "uname -s") with
+      | "darwin" -> "macos"
+      | s -> s
+    in
+    let arch = match read_cmd "uname -m" with
+      | "arm64" | "aarch64" -> "arm64"
+      | a -> a
+    in
+    (os, arch)
+
+(* Find a pre-downloaded archive for the current platform *)
 let find_archive () =
+  let os, arch = detect_platform () in
+  let expected = Printf.sprintf "wasmtime-c-api-%s-%s." arch os in
   let files = Sys.readdir "." in
   let found = ref None in
   Array.iter (fun f ->
@@ -29,7 +54,10 @@ let find_archive () =
       if String.length f > String.length prefix
          && String.sub f 0 (String.length prefix) = prefix
          && (Filename.check_suffix f ".tar.xz" || Filename.check_suffix f ".zip")
-      then found := Some f
+      then
+        if String.length f >= String.length expected
+           && String.sub f 0 (String.length expected) = expected
+        then found := Some f
   ) files;
   !found
 
@@ -64,29 +92,9 @@ let extract_zip file =
   else run (Printf.sprintf "mv %s %s" !inner dest)
 
 let download () =
-  let os, arch =
-    if Sys.win32 then ("mingw", "x86_64")
-    else
-      let read_cmd cmd =
-        let tmp = Filename.temp_file "wasmtime_setup" ".txt" in
-        let rc = Sys.command (Printf.sprintf "%s > %s" cmd tmp) in
-        if rc <> 0 then (Printf.eprintf "Command failed: %s\n" cmd; exit 1);
-        let ic = open_in_bin tmp in
-        let s = String.trim (input_line ic) in (* nosemgrep *)
-        close_in ic;
-        Sys.remove tmp;
-        s
-      in
-      let os = match String.lowercase_ascii (read_cmd "uname -s") with
-        | "darwin" -> "macos"
-        | s -> s
-      in
-      let arch = match read_cmd "uname -m" with
-        | "arm64" -> "aarch64"
-        | a -> a
-      in
-      (os, arch)
-  in
+  let os, arch = detect_platform () in
+  (* wasmtime release filenames use "aarch64" not "arm64" *)
+  let arch = if arch = "arm64" then "aarch64" else arch in
   let ext = if Sys.win32 then "zip" else "tar.xz" in
   let file = Printf.sprintf "wasmtime-v%s-%s-%s-c-api.%s" version arch os ext in
   let url = Printf.sprintf
