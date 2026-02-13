@@ -1,44 +1,156 @@
 # ocaml-wasmtime
-OCaml WebAssembly runtime powered by [wasmtime](https://wasmtime.dev/)
 
-This library let you run WebAssembly modules within OCaml with some
-support for [wasi](https://wasi.dev/) for system calls.
-It acts as a low-level and typesafe wrapper around the wasmtime C library,
-only a subset of the functions are supported for now but it should be enough
-to run some basic examples, see the `tests` directory for details.
+OCaml bindings for [wasmtime](https://wasmtime.dev/), a WebAssembly runtime.
 
-### Installation
+Provides a typesafe interface to compile and execute WebAssembly modules
+from OCaml, with support for [WASI](https://wasi.dev/) system calls.
+Built on the wasmtime v41 C API using ctypes with generated C stubs
+(no libffi dependency).
 
-#### Using Opam
+## Supported features
 
-The simplest way to install this library is via opam, this installs both
-the C library and the OCcaml bindings.
+- Compile WAT or WASM bytecode into modules
+- Instantiate modules with or without imports
+- Call exported functions with typed arguments and results
+- Define OCaml functions as WASM imports (callbacks)
+- Read and write linear memory
+- Inspect module exports (names and kinds) without instantiation
+- WASI configuration: argv, env, stdin/stdout/stderr, filesystem preopens
+- Capture WASI stdout/stderr into OCaml strings
+- Linker-based instantiation for multi-module setups
 
-```bash
-opam install wasmtime
+## Platforms
+
+Requires OCaml >= 5.0. Tested on:
+
+- macOS (aarch64, x86\_64)
+- Linux glibc (aarch64, x86\_64)
+- Linux musl/Alpine (aarch64, x86\_64)
+- Windows (x86\_64 via MinGW)
+
+## Installation
+
+### Via opam pin
+
+This fork is not currently published to the opam registry. To install,
+pin directly from the repository:
+
+```
+opam pin add libwasmtime https://github.com/tpetr/ocaml-wasmtime.git
+opam pin add wasmtime https://github.com/tpetr/ocaml-wasmtime.git
 ```
 
-#### Building from source
+### From source
 
-First the wasmtime C library has to be installed. This can either be done
-via opam.
-```bash
+Install the C library:
+```
 opam install libwasmtime
 ```
-Or this can be done manually.
-- Download the wasmtime c-api library from the [github repo](https://github.com/bytecodealliance/wasmtime/releases).
-- Uncompress the archive and set the `LIBWASTIME` environment variable to point at them.
-```bash
-wget https://github.com/bytecodealliance/wasmtime/releases/download/v0.22.0/wasmtime-v0.22.0-x86_64-linux-c-api.tar.xz
-tar xf wasmtime-v0.22.0-x86_64-linux-c-api.tar.xz
-export LIBWASTIME=$PWD/wasmtime-v0.22.0-x86_64-linux-c-api
+
+Or download it manually and set `LIBWASMTIME` to point at the extracted
+directory (must contain `lib/` and `include/` subdirectories):
+```
+ocaml scripts/setup.ml
 ```
 
-Once the C library has been installed and the repo has been checked out, the
-examples can be run with dune.
-```bash
-dune runtest
+Then build and run tests:
+```
+dune build
+dune test
 ```
 
+## Usage
 
-This has been tested with wasmtime v0.21.0 and v0.22.0 on a linux platform.
+```ocaml
+module W = Wasmtime.Wrappers
+
+let () =
+  let engine = W.Engine.create () in
+  let store = W.Store.create engine in
+  let wat = {|
+    (module
+      (func $add (param i32 i32) (result i32)
+        local.get 0
+        local.get 1
+        i32.add)
+      (export "add" (func $add)))
+  |} in
+  let wasm = W.Wasmtime.wat_to_wasm ~wat:(W.Byte_vec.of_string wat) in
+  let modl = W.Wasmtime.new_module engine ~wasm in
+  let instance = W.Wasmtime.new_instance store modl in
+  match W.Instance.exports store instance with
+  | [ add_extern ] ->
+    let add = W.Extern.as_func add_extern in
+    let result = W.Wasmtime.func_call1 store add [ Int32 3; Int32 4 ] in
+    Printf.printf "3 + 4 = %d\n" (Wasmtime.Val.int_exn result)
+  | _ -> failwith "expected one export"
+```
+
+### Typed function calls
+
+The `func_call` interface uses GADTs to provide type-safe argument
+passing and result extraction:
+
+```ocaml
+let add = W.Extern.as_func add_extern in
+let result =
+  W.Wasmtime.func_call
+    ~args:Val.Kind.(t2 Int32 Int32)
+    ~results:Val.Kind.(t1 Int32)
+    store add (3, 4)
+in
+Printf.printf "3 + 4 = %d\n" result
+```
+
+### OCaml callbacks as WASM imports
+
+```ocaml
+let log_func =
+  W.Func.of_func
+    ~args:Val.Kind.(t1 Int32)
+    ~results:Val.Kind.t0
+    store
+    (fun n -> Printf.printf "wasm says: %d\n" n)
+in
+let instance =
+  W.Wasmtime.new_instance store modl
+    ~imports:[ W.Extern.func_as log_func ]
+```
+
+### Module export inspection
+
+Retrieve export metadata from a compiled module without instantiation:
+
+```ocaml
+let exports = W.Module.exports modl in
+List.iter
+  (fun (e : W.Module.export) ->
+    match e.kind with
+    | Func -> Printf.printf "function: %s\n" e.name
+    | Memory -> Printf.printf "memory: %s\n" e.name
+    | Table -> Printf.printf "table: %s\n" e.name
+    | Global -> Printf.printf "global: %s\n" e.name)
+  exports
+```
+
+### WASI with output capture
+
+```ocaml
+let cap = W.Wasi.create_capture () in
+W.Wasi.configure ~stdout:(Capture cap) store;
+(* ... run WASI module ... *)
+let output = W.Wasi.capture_contents cap in
+print_string output
+```
+
+See the `tests/` directory for complete working examples.
+
+## Origin
+
+This is a fork of [LaurentMazworking/ocaml-wasmtime](https://github.com/LaurentMazare/ocaml-wasmtime)
+by Laurent Mazare, updated to wasmtime v41 with a reworked FFI layer.
+Thanks to Laurent for the original work.
+
+## License
+
+Apache-2.0
