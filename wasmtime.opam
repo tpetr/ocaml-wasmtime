@@ -22,7 +22,6 @@ run-test: [
 
 depends: [
   "ctypes" {>= "0.23.0"}
-  "ctypes-foreign"
   "dune" {>= "3.0" & build}
   "dune-configurator"
   "libwasmtime" {>= "41.0.0"}

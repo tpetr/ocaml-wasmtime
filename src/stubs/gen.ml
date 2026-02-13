@@ -13,6 +13,8 @@ let () =
   Format.fprintf fmt_c "unsigned char *wasi_capture_buf_data(wasi_capture_buf_t *);\n";
   Format.fprintf fmt_c "size_t wasi_capture_buf_len(wasi_capture_buf_t *);\n";
   Format.fprintf fmt_c "void wasi_capture_buf_free(wasi_capture_buf_t *);\n";
+  (* Forward declaration for wasmtime_callback.c *)
+  Format.fprintf fmt_c "void ocaml_wasmtime_func_new_with_env(wasmtime_context_t *, const wasm_functype_t *, void *, void *, wasmtime_func_t *);\n";
   Cstubs.write_c fmt_c ~prefix:"caml_" (module Bindings.C);
   Cstubs.write_ml fmt_ml ~prefix:"caml_" (module Bindings.C);
   flush_all ()

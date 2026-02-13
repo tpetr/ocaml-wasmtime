@@ -195,73 +195,79 @@ module Func = struct
   (* In v41, wasmtime_func_t is a small value struct. We store a copy on the heap. *)
   type t = W.Func.struct_ Ctypes.ptr
 
+  (* Helper: create a raw callback closure for the C trampoline.
+     The closure receives (args_ptr, results_ptr) as nativeints and
+     returns a trap pointer as nativeint (0n = no trap). *)
+  let make_raw_callback ~nargs ~nresults f =
+    fun args_nativeint results_nativeint ->
+      try
+        let args_val =
+          Ctypes.ptr_of_raw_address args_nativeint
+          |> Ctypes.from_voidp W.Val.struct_
+        in
+        let results_val =
+          Ctypes.ptr_of_raw_address results_nativeint
+          |> Ctypes.from_voidp W.Val.struct_
+        in
+        let args =
+          List.init nargs (fun idx ->
+            Ctypes.( +@ ) args_val idx |> V.of_ptr)
+        in
+        let r = f args in
+        if List.length r <> nresults then
+          Printf.ksprintf failwith
+            "callback returned %d values, expected %d"
+            (List.length r) nresults;
+        List.iteri
+          (fun idx val_ -> V.copy val_ (Ctypes.( +@ ) results_val idx))
+          r;
+        0n
+      with exn ->
+        let msg = Printexc.to_string exn ^ "\000" in
+        let trap =
+          W.Trap.new_ msg (String.length msg |> Unsigned.Size_t.of_int)
+        in
+        Ctypes.raw_address_of_ptr (Ctypes.to_voidp trap)
+
   let of_func_list ~args ~results (store : Store.t) f =
     let func_type = Func_type.create ~args ~results in
     let nargs = List.length args in
     let nresults = List.length results in
-    let callback =
-      let open Ctypes in
-      coerce
-        (Foreign.funptr
-           (ptr void @-> W.Caller.t @-> ptr W.Val.struct_ @-> size_t
-            @-> ptr W.Val.struct_ @-> size_t @-> returning W.Trap.t))
-        (static_funptr
-           (ptr void @-> W.Caller.t @-> ptr W.Val.struct_ @-> size_t
-            @-> ptr W.Val.struct_ @-> size_t @-> returning W.Trap.t))
-        (fun _env _caller args_val _nargs results_val _nresults ->
-          try
-            let args =
-              List.init nargs (fun idx ->
-                Ctypes.( +@ ) args_val idx |> V.of_ptr)
-            in
-            let r = f args in
-            if List.length r <> nresults then
-              Printf.ksprintf failwith
-                "callback returned %d values, expected %d"
-                (List.length r) nresults;
-            List.iteri
-              (fun idx val_ -> V.copy val_ (Ctypes.( +@ ) results_val idx))
-              r;
-            Ctypes.from_voidp W.Trap.struct_ Ctypes.null
-          with exn ->
-            let msg = Printexc.to_string exn ^ "\000" in
-            let trap =
-              W.Trap.new_ msg (String.length msg |> Unsigned.Size_t.of_int)
-            in
-            trap)
-    in
+    let raw_callback = make_raw_callback ~nargs ~nresults f in
+    let root = Callback_ffi.root_create raw_callback in
+    let env = Ctypes.ptr_of_raw_address root in
     let ret = Ctypes.allocate_n W.Func.struct_ ~count:1 in
-    W.Wasmtime.func_new store.context func_type callback Ctypes.null Ctypes.null ret;
+    W.Wasmtime.func_new_with_env store.context func_type env Ctypes.null ret;
     (* No delete needed for wasmtime_func_t - it's a value type *)
     Gc.finalise
-      (fun _ret -> keep_alive (callback, func_type, store))
+      (fun _ret ->
+        Callback_ffi.root_release root;
+        keep_alive (func_type, store))
       ret;
     ret
 
   let of_func_0_0 (store : Store.t) f =
     let func_type = W.Func_type.new_0_0 () in
     Gc.finalise W.Func_type.delete func_type;
-    let callback =
-      let open Ctypes in
-      coerce
-        (Foreign.funptr
-           (ptr void @-> W.Caller.t @-> ptr W.Val.struct_ @-> size_t
-            @-> ptr W.Val.struct_ @-> size_t @-> returning W.Trap.t))
-        (static_funptr
-           (ptr void @-> W.Caller.t @-> ptr W.Val.struct_ @-> size_t
-            @-> ptr W.Val.struct_ @-> size_t @-> returning W.Trap.t))
-        (fun _env _caller _args _nargs _results _nresults ->
-          try
-            f ();
-            Ctypes.from_voidp W.Trap.struct_ Ctypes.null
-          with exn ->
-            let msg = Printexc.to_string exn ^ "\000" in
-            W.Trap.new_ msg (String.length msg |> Unsigned.Size_t.of_int))
+    let raw_callback _args_nativeint _results_nativeint =
+      try
+        f ();
+        0n
+      with exn ->
+        let msg = Printexc.to_string exn ^ "\000" in
+        let trap =
+          W.Trap.new_ msg (String.length msg |> Unsigned.Size_t.of_int)
+        in
+        Ctypes.raw_address_of_ptr (Ctypes.to_voidp trap)
     in
+    let root = Callback_ffi.root_create raw_callback in
+    let env = Ctypes.ptr_of_raw_address root in
     let ret = Ctypes.allocate_n W.Func.struct_ ~count:1 in
-    W.Wasmtime.func_new store.context func_type callback Ctypes.null Ctypes.null ret;
+    W.Wasmtime.func_new_with_env store.context func_type env Ctypes.null ret;
     Gc.finalise
-      (fun _ret -> keep_alive (callback, func_type, store))
+      (fun _ret ->
+        Callback_ffi.root_release root;
+        keep_alive (func_type, store))
       ret;
     ret
 

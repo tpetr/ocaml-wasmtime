@@ -483,6 +483,9 @@ module C (F : Cstubs.FOREIGN) = struct
          @-> returning Error.t)
 
     (* v41: wasmtime_func_new takes context, fills in func struct *)
+    (* Note: func_new is kept for reference but not used directly.
+       Use func_new_with_env which hardcodes the C callback trampoline,
+       avoiding the need for ctypes-foreign / libffi. *)
     let func_new =
       foreign "wasmtime_func_new"
         (Context.t
@@ -490,6 +493,17 @@ module C (F : Cstubs.FOREIGN) = struct
          @-> static_funptr Ctypes.(
                ptr void @-> Caller.t @-> ptr Val.struct_ @-> size_t
                @-> ptr Val.struct_ @-> size_t @-> returning Trap.t)
+         @-> ptr void
+         @-> ptr void
+         @-> Func.t
+         @-> returning void)
+
+    (* Wrapper that hardcodes the C callback trampoline.
+       env should be a GC root pointer from Callback_ffi.root_create. *)
+    let func_new_with_env =
+      foreign "ocaml_wasmtime_func_new_with_env"
+        (Context.t
+         @-> Func_type.t
          @-> ptr void
          @-> ptr void
          @-> Func.t
