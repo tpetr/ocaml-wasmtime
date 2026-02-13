@@ -55,13 +55,25 @@ extra-source "wasmtime-c-api-x86_64-macos.tar.xz" {
 extra-source "wasmtime-c-api-arm64-linux.tar.xz" {
   src: "https://github.com/bytecodealliance/wasmtime/releases/download/v41.0.3/wasmtime-v41.0.3-aarch64-linux-c-api.tar.xz"
   checksum: "sha256=12858fe73e599157aa2bad5a180c595cb6f3e1cc523405134c9294d05d0ef3ed"
-  available: arch = "arm64" & os = "linux"
+  available: arch = "arm64" & os = "linux" & os-distribution != "alpine"
 }
 
 extra-source "wasmtime-c-api-x86_64-linux.tar.xz" {
   src: "https://github.com/bytecodealliance/wasmtime/releases/download/v41.0.3/wasmtime-v41.0.3-x86_64-linux-c-api.tar.xz"
   checksum: "sha256=0125e6e8a7a67bdf197e75a0d0a6a71224c12d9e28eb90aa4e1607416f9d9c02"
-  available: arch = "x86_64" & os = "linux"
+  available: arch = "x86_64" & os = "linux" & os-distribution != "alpine"
+}
+
+extra-source "wasmtime-c-api-arm64-musl.tar.xz" {
+  src: "https://github.com/bytecodealliance/wasmtime/releases/download/v41.0.3/wasmtime-v41.0.3-aarch64-musl-c-api.tar.xz"
+  checksum: "sha256=4c05648b18c98588c2467fea4402b14a85b53f404b9d46eee8fa285e0681c716"
+  available: arch = "arm64" & os = "linux" & os-distribution = "alpine"
+}
+
+extra-source "wasmtime-c-api-x86_64-musl.tar.xz" {
+  src: "https://github.com/bytecodealliance/wasmtime/releases/download/v41.0.3/wasmtime-v41.0.3-x86_64-musl-c-api.tar.xz"
+  checksum: "sha256=368fb57ec6126ed193debe94bc01aba5c0362f859a8a952709580a46744567b7"
+  available: arch = "x86_64" & os = "linux" & os-distribution = "alpine"
 }
 
 extra-source "wasmtime-c-api-x86_64-mingw.zip" {

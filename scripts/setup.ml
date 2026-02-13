@@ -29,11 +29,21 @@ let read_cmd cmd =
   Sys.remove tmp;
   s
 
+let is_musl () =
+  (* Check for musl dynamic linker *)
+  try
+    let files = Sys.readdir "/lib" in
+    Array.exists (fun f ->
+      String.length f > 8 && String.sub f 0 8 = "ld-musl-"
+    ) files
+  with _ -> false
+
 let detect_platform () =
   if Sys.win32 then ("mingw", "x86_64")
   else
     let os = match String.lowercase_ascii (read_cmd "uname -s") with
       | "darwin" -> "macos"
+      | "linux" when is_musl () -> "musl"
       | s -> s
     in
     let arch = match read_cmd "uname -m" with
