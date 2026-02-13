@@ -119,6 +119,40 @@ end
 
 module Module = struct
   type t = W.Module.t
+
+  type extern_kind = Func | Global | Table | Memory
+
+  type export = { name : string; kind : extern_kind }
+
+  let extern_kind_of_int = function
+    | 0 -> Func
+    | 1 -> Global
+    | 2 -> Table
+    | 3 -> Memory
+    | n -> Printf.ksprintf failwith "unexpected extern kind %d" n
+
+  let exports t =
+    let vec = Ctypes.allocate_n W.Export_type_vec.struct_ ~count:1 in
+    W.Module.exports t vec;
+    let s = Ctypes.( !@ ) vec in
+    let len = Ctypes.getf s W.Export_type_vec.size |> Unsigned.Size_t.to_int in
+    let data = Ctypes.getf s W.Export_type_vec.data in
+    let result =
+      List.init len (fun i ->
+        let export_type = Ctypes.( !@ ) (Ctypes.( +@ ) data i) in
+        let name_vec = W.Export_type.name export_type in
+        let name_s = Ctypes.( !@ ) name_vec in
+        let name_len = Ctypes.getf name_s W.Byte_vec.size |> Unsigned.Size_t.to_int in
+        let name_data = Ctypes.getf name_s W.Byte_vec.data in
+        let name = Ctypes.string_from_ptr name_data ~length:name_len in
+        let ext_type = W.Export_type.type_ export_type in
+        let kind =
+          W.Extern_type.kind ext_type |> Unsigned.UInt8.to_int |> extern_kind_of_int
+        in
+        { name; kind })
+    in
+    W.Export_type_vec.delete vec;
+    result
 end
 
 (* v41 value helpers - using wasmtime_val_t with wasmtime kind constants *)

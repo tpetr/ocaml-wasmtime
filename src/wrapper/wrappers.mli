@@ -36,6 +36,12 @@ end
 
 module Module : sig
   type t
+
+  type extern_kind = Func | Global | Table | Memory
+
+  type export = { name : string; kind : extern_kind }
+
+  val exports : t -> export list
 end
 
 module Func : sig

@@ -299,6 +299,37 @@ module C (F : Cstubs.FOREIGN) = struct
     let delete = foreign "wasm_functype_delete" (t @-> returning void)
   end
 
+  (* wasm_externtype_t is an opaque type *)
+  module Extern_type = struct
+    type t = unit ptr
+
+    let t : t typ = ptr void
+    let kind = foreign "wasm_externtype_kind" (t @-> returning uint8_t)
+  end
+
+  (* wasm_exporttype_t is an opaque type *)
+  module Export_type = struct
+    type t = unit ptr
+
+    let t : t typ = ptr void
+    let name = foreign "wasm_exporttype_name" (t @-> returning Byte_vec.t)
+    let type_ = foreign "wasm_exporttype_type" (t @-> returning Extern_type.t)
+    let delete = foreign "wasm_exporttype_delete" (t @-> returning void)
+  end
+
+  module Export_type_vec = struct
+    type modl
+    type struct_ = modl Ctypes.structure
+    type t = struct_ ptr
+
+    let struct_ : struct_ typ = structure "wasm_exporttype_vec_t"
+    let size = field struct_ "size" size_t
+    let data = field struct_ "data" (ptr Export_type.t)
+    let () = seal struct_
+    let t : t typ = ptr struct_
+    let delete = foreign "wasm_exporttype_vec_delete" (t @-> returning void)
+  end
+
   (* wasmtime_module_t is an opaque struct pointer *)
   module Module = struct
     type modl
@@ -308,6 +339,9 @@ module C (F : Cstubs.FOREIGN) = struct
     let struct_ : struct_ typ = structure "wasmtime_module"
     let t : t typ = ptr struct_
     let delete = foreign "wasmtime_module_delete" (t @-> returning void)
+
+    let exports =
+      foreign "wasmtime_module_exports" (t @-> Export_type_vec.t @-> returning void)
   end
 
   (* wasmtime_instance_t is a small struct *)
