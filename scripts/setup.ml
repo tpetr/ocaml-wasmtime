@@ -122,3 +122,20 @@ let () =
   | None ->
     Printf.printf "No archive found, downloading wasmtime v%s...\n%!" version;
     download ()
+
+(* Install to OPAM_SWITCH_PREFIX for persistent access by downstream packages *)
+let () =
+  match Sys.getenv_opt "OPAM_SWITCH_PREFIX" with
+  | Some prefix ->
+    let install_dir = Filename.concat (Filename.concat prefix "lib") "libwasmtime" in
+    if Sys.win32 then (
+      run (Printf.sprintf "mkdir \"%s\" 2>NUL" install_dir);
+      run (Printf.sprintf "xcopy /E /Y /I \"%s\\lib\" \"%s\\lib\"" dest install_dir);
+      run (Printf.sprintf "xcopy /E /Y /I \"%s\\include\" \"%s\\include\"" dest install_dir)
+    ) else (
+      run (Printf.sprintf "mkdir -p %s" install_dir);
+      run (Printf.sprintf "cp -r %s/lib %s/" dest install_dir);
+      run (Printf.sprintf "cp -r %s/include %s/" dest install_dir)
+    );
+    Printf.printf "Installed wasmtime C API to %s\n" install_dir
+  | None -> ()

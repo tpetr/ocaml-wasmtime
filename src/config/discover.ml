@@ -24,18 +24,23 @@ let wasmtime_flags () =
     let libs = [lib_file] in
     { C.Pkg_config.cflags; libs }
   in
-  (* Priority: LIBWASMTIME env > --wasmtime-dir flag > OPAM_SWITCH_PREFIX *)
+  (* Priority: LIBWASMTIME env > OPAM_SWITCH_PREFIX > --wasmtime-dir flag *)
   match Sys.getenv_opt "LIBWASMTIME" with
   | Some lib_dir -> config ~lib_dir
   | None ->
-    if !wasmtime_dir <> "" then config ~lib_dir:!wasmtime_dir
-    else
-      (match Sys.getenv_opt "OPAM_SWITCH_PREFIX" with
-       | Some prefix ->
-         let lib_dir = Filename.concat (Filename.concat prefix "lib") "libwasmtime" in
-         if Sys.file_exists lib_dir then config ~lib_dir
-         else empty_flags
-       | None -> empty_flags)
+    let from_prefix =
+      match Sys.getenv_opt "OPAM_SWITCH_PREFIX" with
+      | Some prefix ->
+        let lib_dir = Filename.concat (Filename.concat prefix "lib") "libwasmtime" in
+        if Sys.file_exists lib_dir then Some (config ~lib_dir)
+        else None
+      | None -> None
+    in
+    (match from_prefix with
+     | Some flags -> flags
+     | None ->
+       if !wasmtime_dir <> "" then config ~lib_dir:!wasmtime_dir
+       else empty_flags)
 
 let system_libs () =
   match Sys.os_type with
