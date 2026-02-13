@@ -6,6 +6,7 @@ let resolve_path p =
   if Filename.is_relative p then Filename.concat (Sys.getcwd ()) p else p
 
 let wasmtime_dir = ref ""
+let used_wasmtime_dir_fallback = ref false
 
 (* Find wasmtime installed via Homebrew (macOS) *)
 let homebrew_prefix () =
@@ -57,7 +58,10 @@ let wasmtime_flags () =
     (match from_prefix with
      | Some flags -> flags
      | None ->
-       if !wasmtime_dir <> "" then config ~lib_dir:!wasmtime_dir
+       if !wasmtime_dir <> "" then begin
+         used_wasmtime_dir_fallback := true;
+         config ~lib_dir:!wasmtime_dir
+       end
        else empty_flags)
 
 let system_libs () =
@@ -84,5 +88,27 @@ let () =
       | _ -> empty_flags
     in
     let sys_libs = try system_libs () with _ -> ["-lm"] in
+    (* When building as an opam package and falling through to --wasmtime-dir,
+       the resolved path points into the ephemeral opam build directory which
+       won't exist after installation. Override c_library_flags to use the
+       install path ($OPAM_SWITCH_PREFIX/lib/libwasmtime/) so that downstream
+       packages can find libwasmtime at its installed location. *)
+    let libs =
+      if !used_wasmtime_dir_fallback
+         && Sys.getenv_opt "OPAM_PACKAGE_NAME" <> None then
+        match Sys.getenv_opt "OPAM_SWITCH_PREFIX" with
+        | Some prefix ->
+          let install_lib_dir =
+            List.fold_left Filename.concat prefix ["lib"; "libwasmtime"; "lib"]
+          in
+          let lib_name = match Sys.os_type with
+            | "Win32" | "Cygwin" -> "wasmtime.dll.lib"
+            | _ -> "libwasmtime.a"
+          in
+          [Filename.concat install_lib_dir lib_name]
+        | None -> wasmtime_flags.libs
+      else
+        wasmtime_flags.libs
+    in
     C.Flags.write_sexp "c_flags.sexp" wasmtime_flags.cflags;
-    C.Flags.write_sexp "c_library_flags.sexp" (wasmtime_flags.libs @ sys_libs))
+    C.Flags.write_sexp "c_library_flags.sexp" (libs @ sys_libs))
