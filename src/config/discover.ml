@@ -7,6 +7,18 @@ let resolve_path p =
 
 let wasmtime_dir = ref ""
 
+(* Find wasmtime installed via Homebrew (macOS) *)
+let homebrew_prefix () =
+  let check_prefix p =
+    if Sys.file_exists (Filename.concat (Filename.concat p "lib") "libwasmtime.a")
+    then Some p else None
+  in
+  match Sys.getenv_opt "HOMEBREW_PREFIX" with
+  | Some prefix -> check_prefix prefix
+  | None ->
+    (* Default Homebrew paths: arm64 and x86_64 *)
+    List.find_map check_prefix ["/opt/homebrew"; "/usr/local"]
+
 let wasmtime_flags () =
   let config ~lib_dir =
     let lib_dir = resolve_path lib_dir in
@@ -24,17 +36,23 @@ let wasmtime_flags () =
     let libs = [lib_file] in
     { C.Pkg_config.cflags; libs }
   in
-  (* Priority: LIBWASMTIME env > OPAM_SWITCH_PREFIX > --wasmtime-dir flag *)
+  (* Priority: LIBWASMTIME env > Homebrew > OPAM_SWITCH_PREFIX > --wasmtime-dir flag *)
   match Sys.getenv_opt "LIBWASMTIME" with
   | Some lib_dir -> config ~lib_dir
   | None ->
-    let from_prefix =
-      match Sys.getenv_opt "OPAM_SWITCH_PREFIX" with
-      | Some prefix ->
-        let lib_dir = Filename.concat (Filename.concat prefix "lib") "libwasmtime" in
-        if Sys.file_exists lib_dir then Some (config ~lib_dir)
-        else None
+    let from_brew = match homebrew_prefix () with
+      | Some prefix -> Some (config ~lib_dir:prefix)
       | None -> None
+    in
+    let from_prefix = match from_brew with
+      | Some _ -> from_brew
+      | None ->
+        (match Sys.getenv_opt "OPAM_SWITCH_PREFIX" with
+         | Some prefix ->
+           let lib_dir = Filename.concat (Filename.concat prefix "lib") "libwasmtime" in
+           if Sys.file_exists lib_dir then Some (config ~lib_dir)
+           else None
+         | None -> None)
     in
     (match from_prefix with
      | Some flags -> flags
