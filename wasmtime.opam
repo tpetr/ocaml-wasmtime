@@ -26,6 +26,10 @@ depends: [
   "ocaml" {>= "5.0"}
 ]
 
+depexts: [
+   ["wasmtime"] {os = "macos" & os-distribution = "homebrew"}
+]
+
 available: (arch = "x86_64" | arch = "arm64") & (os = "linux" | os = "macos" | os = "win32")
 
 extra-source "wasmtime-c-api-arm64-macos.tar.xz" {
