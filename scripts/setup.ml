@@ -77,9 +77,11 @@ let extract_tar_xz file =
 
 let extract_zip file =
   run (Printf.sprintf "mkdir -p %s" dest);
-  (* Windows 10+ tar handles zip; use a temp dir since zip has no --strip-components *)
-  let tmp = "wasmtime-c-api-tmp" in
-  run (Printf.sprintf "tar -xf %s -C ." file);
+  if Sys.win32 then
+    run (Printf.sprintf
+      "powershell -NoProfile -Command \"Expand-Archive -Force '%s' '.'\"" file)
+  else
+    run (Printf.sprintf "unzip -oq %s" file);
   (* The zip extracts to a directory like wasmtime-v41.0.3-x86_64-mingw-c-api/ *)
   let files = Sys.readdir "." in
   let inner = ref "" in
@@ -88,7 +90,6 @@ let extract_zip file =
        && String.length f > 9
        && String.sub f 0 9 = "wasmtime-"
        && f <> dest
-       && f <> tmp
     then inner := f
   ) files;
   if !inner = "" then (
