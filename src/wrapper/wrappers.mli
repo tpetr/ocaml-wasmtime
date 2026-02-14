@@ -15,6 +15,7 @@ module Engine : sig
     -> ?memory_reservation:int
     -> ?memory_guard_size:int
     -> ?memory_reservation_for_growth:int
+    -> ?consume_fuel:bool
     -> unit
     -> t
 end
@@ -23,6 +24,8 @@ module Store : sig
   type t
 
   val create : Engine.t -> t
+  val set_fuel : t -> int -> unit
+  val get_fuel : t -> int
 end
 
 module Byte_vec : sig

@@ -487,6 +487,10 @@ module C (F : Cstubs.FOREIGN) = struct
       let epoch_interruption_set =
         foreign "wasmtime_config_epoch_interruption_set"
           (Config.t @-> bool @-> returning void)
+
+      let consume_fuel_set =
+        foreign "wasmtime_config_consume_fuel_set"
+          (Config.t @-> bool @-> returning void)
     end
 
     (* v41: wasmtime_context_set_wasi *)
@@ -570,5 +574,13 @@ module C (F : Cstubs.FOREIGN) = struct
     let memory_grow =
       foreign "wasmtime_memory_grow"
         (Context.t @-> Memory.t @-> uint64_t @-> ptr uint64_t @-> returning Error.t)
+
+    let context_set_fuel =
+      foreign "wasmtime_context_set_fuel"
+        (Context.t @-> uint64_t @-> returning Error.t)
+
+    let context_get_fuel =
+      foreign "wasmtime_context_get_fuel"
+        (Context.t @-> ptr uint64_t @-> returning Error.t)
   end
 end

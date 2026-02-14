@@ -29,6 +29,7 @@ module Engine = struct
       ?memory_reservation
       ?memory_guard_size
       ?memory_reservation_for_growth
+      ?consume_fuel
       ()
     =
     let config =
@@ -52,6 +53,7 @@ module Engine = struct
           Unsigned.UInt64.of_int sz
           |> W.Wasmtime.Config.memory_reservation_for_growth_set t)
         memory_reservation_for_growth;
+      Option.iter (W.Wasmtime.Config.consume_fuel_set t) consume_fuel;
       t
     in
     let t = W.Engine.new_with_config config in
@@ -73,6 +75,28 @@ module Store = struct
         W.Store.delete store)
       store;
     { store; context }
+
+  let fail_on_error err =
+    if not (Ctypes.is_null err) then begin
+      let msg_vec = Ctypes.allocate_n W.Byte_vec.struct_ ~count:1 in
+      W.Error.message err msg_vec;
+      let s = Ctypes.( !@ ) msg_vec in
+      let len = Ctypes.getf s W.Byte_vec.size |> Unsigned.Size_t.to_int in
+      let data = Ctypes.getf s W.Byte_vec.data in
+      let message = Ctypes.string_from_ptr data ~length:len in
+      W.Byte_vec.delete msg_vec;
+      W.Error.delete err;
+      failwith message
+    end
+
+  let set_fuel (store : t) fuel =
+    W.Wasmtime.context_set_fuel store.context (Unsigned.UInt64.of_int fuel)
+    |> fail_on_error
+
+  let get_fuel (store : t) =
+    let out = Ctypes.allocate_n Ctypes.uint64_t ~count:1 in
+    W.Wasmtime.context_get_fuel store.context out |> fail_on_error;
+    Ctypes.( !@ ) out |> Unsigned.UInt64.to_int
 end
 
 module Byte_vec = struct
