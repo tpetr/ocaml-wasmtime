@@ -57,7 +57,8 @@ let wasmtime_flags () =
 
 let system_libs () =
   match Sys.os_type with
-  | "Win32" | "Cygwin" -> []
+  | "Win32" | "Cygwin" ->
+    ["-luserenv"; "-lws2_32"; "-lbcrypt"; "-lntdll"; "-ladvapi32"; "-lkernel32"]
   | _ ->
     let is_linux =
       try
