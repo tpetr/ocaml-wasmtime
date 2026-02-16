@@ -78,6 +78,10 @@ module Memory : sig
   val to_string : Store.t -> t -> pos:int -> len:int -> string
   val get : Store.t -> t -> pos:int -> char
   val set : Store.t -> t -> pos:int -> char -> unit
+
+  (** [blit_string store t ~pos s] copies the contents of [s] into wasm memory
+      starting at byte offset [pos]. *)
+  val blit_string : Store.t -> t -> pos:int -> string -> unit
 end
 
 module Extern : sig

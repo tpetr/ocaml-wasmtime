@@ -390,6 +390,29 @@ module Memory = struct
     let ptr = W.Wasmtime.memory_data store.context t in
     let p = Ctypes.( +@ ) ptr pos in
     Ctypes.(p <-@ Unsigned.UInt8.of_int (Char.code chr))
+
+  let blit_string (store : Store.t) t ~pos (s : string) =
+    let slen = String.length s in
+    if slen = 0 then ()
+    else begin
+      if pos < 0 then Printf.sprintf "negative pos %d" pos |> invalid_arg;
+      let size_in_bytes =
+        W.Wasmtime.memory_data_size store.context t |> Unsigned.Size_t.to_int
+      in
+      if pos + slen > size_in_bytes then
+        Printf.sprintf "pos (%d) + len (%d) > size_in_bytes (%d)" pos slen size_in_bytes
+        |> invalid_arg;
+      let ptr = W.Wasmtime.memory_data store.context t in
+      let char_ptr =
+        Ctypes.coerce (Ctypes.ptr Ctypes.uint8_t) (Ctypes.ptr Ctypes.char) ptr
+      in
+      let ba =
+        Ctypes.bigarray_of_ptr Ctypes.array1 size_in_bytes Bigarray.char char_ptr
+      in
+      for i = 0 to slen - 1 do
+        Bigarray.Array1.set ba (pos + i) (String.get s i)
+      done
+    end
 end
 
 module Extern = struct
